@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>山商信息通 · 山东工商学院校园政策一站查询</title>
+  <meta name="description" content="山东工商学院校园信息聚合站：学籍、奖助学金、选课、考试、宿舍、团学创新创业等政策一站式查询。">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- 引入 Supabase JS SDK (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="logo"><a href="#/"><span class="dot"></span><span class="dot alt"></span>山商信息通</a></div>
+      <div class="top-actions">
+        <div class="top-search">
+          <input type="text" id="search" placeholder="搜索政策、部门、事项…" aria-label="搜索">
+        </div>
+        <button class="btn btn-outline" id="btn-submit-post" onclick="showModal('modal-submit')">✍️ 我要投稿</button>
+        <div id="user-area">
+          <button class="btn btn-primary" id="btn-login" onclick="showModal('modal-auth')">登录</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero" id="hero">
+    <h1>山商<span class="accent">信息通</span></h1>
+    <p>山东工商学院校园政策一站式查询。把散落在官网、教务处、学生处等处的信息，按「你要办的事」重新整理，新生不再大海捞针。</p>
+    <div class="searchbox">
+      <span class="icon">⌕</span>
+      <input type="text" id="hero-search" placeholder="试试搜索「转专业」「助学金」「选课」…">
+      <span class="hint">已收录 <span id="count">45</span> 条 · 持续更新</span>
+    </div>
+  </section>
+
+  <main class="wrap">
+    <!-- 列表视图 -->
+    <div id="list-view">
+      <h2 class="section-title">按场景查</h2>
+      <p class="section-sub">点击板块快速筛选，或在上方搜索框直接输入关键词</p>
+      <div class="cats" id="cats"></div>
+
+      <div class="cards" id="cards"></div>
+      <div class="empty" id="empty" style="display:none;">没有找到相关内容，换个关键词试试，或先看看「常用入口」。</div>
+
+      <h2 class="section-title" style="margin-top:36px;">官方渠道</h2>
+      <p class="section-sub">一手信息来源，政策以这些官方站点为准</p>
+      <div class="links" id="links"></div>
+
+      <div class="note">
+        ⚠️ 本站为同学自发整理的信息导航，内容均为摘要，<b>办理以官方最新通知为准</b>；如信息有误或已更新，欢迎反馈修正。
+      </div>
+    </div>
+
+    <!-- 详情视图 -->
+    <div id="detail-view" style="display:none;"></div>
+  </main>
+
+  <!-- 模态框 1：登录 / 注册 (支持手机号/账号 + 密码) -->
+  <div class="modal-overlay" id="modal-auth" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="auth-title">学生登录 / 注册</h3>
+        <button class="modal-close" onclick="hideModal('modal-auth')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-tabs">
+          <div class="modal-tab active" id="tab-login" onclick="switchAuthTab('login')">登录</div>
+          <div class="modal-tab" id="tab-register" onclick="switchAuthTab('register')">注册新账号</div>
+        </div>
+        
+        <p class="modal-desc" id="auth-desc">输入账号（手机号或学号）和密码即可登录，无需短信/邮件验证。</p>
+        
+        <div class="form-group">
+          <label for="auth-account">手机号 / 账号</label>
+          <input type="text" id="auth-account" placeholder="如 13800000000 或个人手机号">
+        </div>
+
+        <div class="form-group" id="group-username" style="display:none;">
+          <label for="auth-nickname">昵称 / 显示名（选填）</label>
+          <input type="text" id="auth-nickname" placeholder="如 山商新生、匿名同学">
+        </div>
+
+        <div class="form-group">
+          <label for="auth-password">登录密码</label>
+          <input type="password" id="auth-password" placeholder="请输入密码（至少 6 位）">
+        </div>
+
+        <div id="auth-msg" class="form-msg"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" onclick="hideModal('modal-auth')">取消</button>
+        <button class="btn btn-primary" id="btn-do-auth" onclick="handleAuthSubmit()">立即登录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 2：纠错与信息失效反馈 -->
+  <div class="modal-overlay" id="modal-feedback" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>信息纠错与失效反馈</h3>
+        <button class="modal-close" onclick="hideModal('modal-feedback')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="fb-slug">
+        <div class="form-group">
+          <label>反馈事项</label>
+          <div id="fb-item-title" class="form-static"></div>
+        </div>
+        <div class="form-group">
+          <label for="fb-type">问题类型</label>
+          <select id="fb-type">
+            <option value="outdated">信息已过期 / 时间变更</option>
+            <option value="wrong_phone">联系电话或办公地点有误</option>
+            <option value="policy_change">办理流程或政策有调整</option>
+            <option value="other">其他问题 / 描述不准确</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="fb-desc">详细说明（必填）</label>
+          <textarea id="fb-desc" rows="3" placeholder="请描述最新情况或给出正确的官方通知链接…"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="fb-contact">联系方式（选填）</label>
+          <input type="text" id="fb-contact" placeholder="微信 / 邮箱 / 手机号，方便核实">
+        </div>
+        <div id="fb-msg" class="form-msg"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" onclick="hideModal('modal-feedback')">取消</button>
+        <button class="btn btn-primary" id="btn-do-feedback" onclick="handleFeedbackSubmit()">提交反馈</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 3：我要投稿 -->
+  <div class="modal-overlay" id="modal-submit" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-head">
+        <h3>我要投稿 · 经验与政策分享</h3>
+        <button class="modal-close" onclick="hideModal('modal-submit')">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">分享你知道的校园办事攻略或补充最新政策，审核通过后将展示在网站上。</p>
+        <div class="form-group">
+          <label for="post-cat">所属板块</label>
+          <select id="post-cat">
+            <option value="report">入学报到</option>
+            <option value="roll">学籍管理</option>
+            <option value="course">选课教学</option>
+            <option value="aid">奖助贷勤</option>
+            <option value="exam">考试相关</option>
+            <option value="dorm">宿舍生活</option>
+            <option value="campus">校园服务</option>
+            <option value="league">团学与创新创业</option>
+            <option value="grad">毕业就业</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="post-title">事项标题</label>
+          <input type="text" id="post-title" placeholder="简短清晰，如：东校区打印店汇总">
+        </div>
+        <div class="form-group">
+          <label for="post-summary">一句话摘要</label>
+          <input type="text" id="post-summary" placeholder="用一句话讲清是什么/怎么做">
+        </div>
+        <div class="form-group">
+          <label for="post-content">详细内容 / 步骤攻略</label>
+          <textarea id="post-content" rows="5" placeholder="写明具体办理流程、地点、注意事项…"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="post-url">官方来源或参考链接（选填）</label>
+          <input type="url" id="post-url" placeholder="https://...">
+        </div>
+        <div id="post-msg" class="form-msg"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" onclick="hideModal('modal-submit')">取消</button>
+        <button class="btn btn-primary" id="btn-do-post" onclick="handlePostSubmit()">提交审核</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    山商信息通 · 非官方、由学生维护 · 数据来源：山东工商学院官网及各职能部门站点<br>
+    <a href="https://www.sdtbu.edu.cn/" target="_blank" rel="noopener">学校官网</a> ·
+    <a href="admin.html" target="_blank" style="color:var(--brand); font-weight:600; text-decoration:none;">🛠️ 管理后台 & 数据看板</a> ·
+    地址：山东省烟台市莱山区滨海中路191号
+  </footer>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

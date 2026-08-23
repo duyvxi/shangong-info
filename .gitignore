@@ -1,0 +1,29 @@
+# ===== Node / 前端 =====
+node_modules/
+*.log
+npm-debug.log*
+
+# ===== Python 抓取脚本 (缓存/依赖) =====
+__pycache__/
+*.pyc
+.python-version
+venv/
+.venv/
+
+# ===== 本地敏感配置（如有） =====
+.env
+.env.local
+.env.*.local
+service-account.json
+
+# ===== 系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== 部署产物（若选用静态构建输出）=====
+dist/
+out/

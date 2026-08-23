@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>山商信息通 · 管理后台与数据驾驶舱</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <style>
+    body { background: #f4f6fa; }
+    .admin-wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    .admin-nav { display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+    .admin-nav button {
+      background: none; border: none; padding: 8px 16px; font-size: 14px; font-weight: 600;
+      color: var(--muted); cursor: pointer; border-radius: 6px; transition: all 0.2s;
+    }
+    .admin-nav button.active { background: var(--brand); color: #fff; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card {
+      background: #fff; padding: 20px; border-radius: 8px; border: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .stat-label { font-size: 13px; color: var(--muted); }
+    .stat-val { font-size: 28px; font-weight: 700; color: var(--brand); }
+    .dashboard-panel {
+      background: #fff; padding: 20px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 24px;
+    }
+    .dashboard-panel h3 { margin: 0 0 16px; font-size: 16px; font-weight: 700; }
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .admin-table th, .admin-table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .admin-table th { background: #f8fafc; font-weight: 600; color: #475569; }
+    .badge-status { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: #dcfce7; color: #15803d; }
+    .badge-banned { background: #fee2e2; color: #b91c1c; }
+    .badge-todo { background: #fef3c7; color: #b45309; }
+    .badge-resolved { background: #e0e7ff; color: #4338ca; }
+    .btn-action { padding: 4px 8px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); }
+    .btn-danger { color: #dc2626; border-color: #fca5a5; }
+    .btn-success { color: #16a34a; border-color: #86efac; }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="logo"><a href="index.html">← 返回学生主站</a></div>
+      <div style="font-size:14px; font-weight:700; color:var(--brand);">🛠️ 站点管理与数据驾驶舱</div>
+      <div>
+        <button class="btn btn-outline btn-sm" onclick="loadAllAdminData()">🔄 刷新数据</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="admin-wrap">
+    <!-- 导航切换 -->
+    <div class="admin-nav">
+      <button class="active" id="nav-dash" onclick="switchAdminTab('dash')">📊 数据统计看板</button>
+      <button id="nav-users" onclick="switchAdminTab('users')">👥 用户档案管理</button>
+      <button id="nav-comments" onclick="switchAdminTab('comments')">💬 评论与回复审查</button>
+      <button id="nav-feeds" onclick="switchAdminTab('feeds')">🆕 内容源自动更新</button>
+      <button id="nav-feedback" onclick="switchAdminTab('feedback')">🚩 纠错与失效处理</button>
+      <button id="nav-submissions" onclick="switchAdminTab('submissions')">✍️ 学生投稿审核</button>
+    </div>
+
+    <!-- 1. 数据概览看板 -->
+    <div id="tab-pane-dash">
+      <!-- 核心指标卡片 -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <span class="stat-label">👥 注册学生总数</span>
+          <span class="stat-val" id="stat-users">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">👀 事项累计浏览 (PV)</span>
+          <span class="stat-val" id="stat-pv">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">❤️ 收到点赞总数</span>
+          <span class="stat-val" id="stat-likes">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">💬 学生评论总数</span>
+          <span class="stat-val" id="stat-comments">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">🚩 收到纠错反馈</span>
+          <span class="stat-val" id="stat-feedbacks">-</span>
+        </div>
+      </div>
+
+      <!-- 排行榜与热词 -->
+      <div style="display:grid; grid-template-columns: 1.2fr 1fr; gap:20px;">
+        <div class="dashboard-panel">
+          <h3>🔥 热门政策与攻略排行 (Top 10)</h3>
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>排名</th>
+                <th>事项 Slug</th>
+                <th>所属板块</th>
+                <th>浏览次数</th>
+              </tr>
+            </thead>
+            <tbody id="tbl-top-items">
+              <tr><td colspan="4" style="text-align:center;">数据加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="dashboard-panel">
+          <h3>🔍 搜索热词与需求缺口 (学生在搜什么)</h3>
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>关键词</th>
+                <th>搜索频次</th>
+                <th>状态/有无结果</th>
+              </tr>
+            </thead>
+            <tbody id="tbl-search-keywords">
+              <tr><td colspan="3" style="text-align:center;">数据加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 用户管理 -->
+    <div id="tab-pane-users" style="display:none;">
+      <div class="dashboard-panel">
+        <h3>👥 注册学生档案列表</h3>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>账号/手机号</th>
+              <th>显示昵称</th>
+              <th>角色</th>
+              <th>状态</th>
+              <th>注册时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-users">
+            <tr><td colspan="6" style="text-align:center;">数据加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. 评论与回复审查管理 -->
+    <div id="tab-pane-comments" style="display:none;">
+      <div class="dashboard-panel">
+        <h3>💬 全站评论与楼中楼回复审查</h3>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>所属事项</th>
+              <th>评论类型</th>
+              <th>发布人</th>
+              <th>内容</th>
+              <th>状态</th>
+              <th>发布时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-comments">
+            <tr><td colspan="7" style="text-align:center;">数据加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4. 内容源自动更新（feeds 待审池） -->
+    <div id="tab-pane-feeds" style="display:none;">
+      <div class="dashboard-panel">
+        <h3>🆕 官网/教务处/学生处 新内容自动抓取（每 6 小时）</h3>
+        <p style="font-size:12px; color:#64748b; margin:-8px 0 14px;">
+          下方为 GitHub Actions 定时抓取的官方最新发布。请人工审核：选择归属板块后点击「发布」才会正式进入主站；
+          无关内容可「忽略」。发布后请同步到 data.js 主干数据（见主站数据文件）。
+        </p>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>来源</th>
+              <th>标题</th>
+              <th>发布日期</th>
+              <th>状态</th>
+              <th>抓取时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-feeds">
+            <tr><td colspan="6" style="text-align:center;">数据加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. 纠错反馈管理 -->
+    <div id="tab-pane-feedback" style="display:none;">
+      <div class="dashboard-panel">
+        <h3>🚩 待处理纠错与失效上报</h3>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>事项 Slug</th>
+              <th>问题类型</th>
+              <th>纠错说明</th>
+              <th>联系方式</th>
+              <th>提交时间</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-feedbacks">
+            <tr><td colspan="5" style="text-align:center;">数据加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. 投稿审核管理 -->
+    <div id="tab-pane-submissions" style="display:none;">
+      <div class="dashboard-panel">
+        <h3>✍️ 学生原创经验投稿池</h3>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>板块</th>
+              <th>标题</th>
+              <th>作者</th>
+              <th>状态</th>
+              <th>投稿时间</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-submissions">
+            <tr><td colspan="5" style="text-align:center;">数据加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    function switchAdminTab(tab) {
+      ['dash', 'users', 'comments', 'feeds', 'feedback', 'submissions'].forEach(t => {
+        const nav = document.getElementById('nav-' + t);
+        const pane = document.getElementById('tab-pane-' + t);
+        if (nav) nav.classList.remove('active');
+        if (pane) pane.style.display = 'none';
+      });
+      const targetNav = document.getElementById('nav-' + tab);
+      const targetPane = document.getElementById('tab-pane-' + tab);
+      if (targetNav) targetNav.classList.add('active');
+      if (targetPane) targetPane.style.display = 'block';
+    }
+
+    async function loadAllAdminData() {
+      if (!window.Api || !window.Api.isConfigured()) {
+        alert('Supabase 未配置，请先检查 api.js');
+        return;
+      }
+
+      // 1. 加载概览卡片 (独立 catch，避免单点报错阻塞后续)
+      try {
+        const summary = await window.Api.getDashboardSummary();
+        document.getElementById('stat-users').textContent = summary.totalUsers;
+        document.getElementById('stat-pv').textContent = summary.totalPv;
+        document.getElementById('stat-likes').textContent = summary.totalLikes;
+        document.getElementById('stat-comments').textContent = summary.totalComments;
+        document.getElementById('stat-feedbacks').textContent = summary.totalFeedbacks;
+      } catch (err) {
+        console.warn('加载概览失败:', err);
+      }
+
+      // 2. 加载热门榜
+      try {
+        const topItems = await window.Api.getTopViewedItems(10);
+        const topBody = document.getElementById('tbl-top-items');
+        if (!topItems.length) {
+          topBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">暂无浏览数据</td></tr>';
+        } else {
+          topBody.innerHTML = topItems.map((item, idx) => `
+            <tr>
+              <td><b>#${idx + 1}</b></td>
+              <td><code>${item.item_slug}</code></td>
+              <td><span class="tag">${item.cat_id}</span></td>
+              <td><b>${item.view_count}</b> 次</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-top-items').innerHTML = `<tr><td colspan="4" style="text-align:center;color:#dc2626;">需在 Supabase 执行最新 SQL 创建 view_top_items</td></tr>`;
+      }
+
+      // 3. 加载搜索词
+      try {
+        const searchKws = await window.Api.getSearchRankings(10);
+        const kwBody = document.getElementById('tbl-search-keywords');
+        if (!searchKws.length) {
+          kwBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#94a3b8;">暂无搜索记录</td></tr>';
+        } else {
+          kwBody.innerHTML = searchKws.map(kw => `
+            <tr>
+              <td><b>${kw.keyword}</b></td>
+              <td>${kw.search_count} 次</td>
+              <td>${kw.zero_hit_count > 0 ? '<span class="badge-status badge-banned">暂无匹配(急需补充)</span>' : '<span class="badge-status badge-active">已覆盖</span>'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-search-keywords').innerHTML = `<tr><td colspan="3" style="text-align:center;color:#dc2626;">需在 Supabase 执行最新 SQL 创建 view_search_ranking</td></tr>`;
+      }
+
+      // 4. 加载用户列表
+      try {
+        const users = await window.Api.getAdminProfiles();
+        const userBody = document.getElementById('tbl-users');
+        if (!users.length) {
+          userBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">暂无注册学生（或尚未在 Supabase 执行 SQL 创建 profiles 表）</td></tr>';
+        } else {
+          userBody.innerHTML = users.map(u => `
+            <tr>
+              <td><b>${u.account_raw}</b></td>
+              <td>${u.nickname || '未设置'}</td>
+              <td><code>${u.role}</code></td>
+              <td><span class="badge-status ${u.status === 'active' ? 'badge-active' : 'badge-banned'}">${u.status}</span></td>
+              <td>${new Date(u.created_at).toLocaleString()}</td>
+              <td>
+                ${u.status === 'active' 
+                  ? `<button class="btn-action btn-danger" onclick="toggleUserStatus('${u.id}', 'banned')">封禁</button>`
+                  : `<button class="btn-action btn-success" onclick="toggleUserStatus('${u.id}', 'active')">解封</button>`}
+              </td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-users').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">加载失败：${err.message || '请先在 Supabase 执行最新的 SQL 脚本创建 profiles 表'}</td></tr>`;
+      }
+
+      // 5. 加载评论与回复审查
+      try {
+        const comments = await window.Api.getAdminComments(40);
+        const cmBody = document.getElementById('tbl-comments');
+        if (!comments.length) {
+          cmBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">暂无评论互动</td></tr>';
+        } else {
+          cmBody.innerHTML = comments.map(c => `
+            <tr>
+              <td><code>${c.item_slug}</code></td>
+              <td>${c.parent_id ? '<span class="tag" style="background:#fef3c7;color:#92400e;">楼中楼回复</span>' : '<span class="tag" style="background:#e0f2fe;color:#0369a1;">主评论</span>'}</td>
+              <td>
+                <b>${c.user_name}</b>
+                ${c.reply_to_name ? `<br><small style="color:#64748b;">回复 @${c.reply_to_name}</small>` : ''}
+              </td>
+              <td style="max-width:240px; word-break:break-all;">${c.content}</td>
+              <td><span class="badge-status ${c.status === 'approved' ? 'badge-active' : 'badge-banned'}">${c.status === 'approved' ? '正常显示' : '已屏蔽'}</span></td>
+              <td>${new Date(c.created_at).toLocaleString()}</td>
+              <td>
+                ${c.status === 'approved'
+                  ? `<button class="btn-action btn-danger" onclick="toggleCommentReview('${c.id}', 'rejected')">屏蔽</button>`
+                  : `<button class="btn-action btn-success" onclick="toggleCommentReview('${c.id}', 'approved')">放行</button>`}
+              </td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-comments').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${err.message}</td></tr>`;
+      }
+
+      // 6. 加载内容源自动抓取 (feeds)
+      try {
+        const feeds = await window.Api.getFeeds(60);
+        const feedsBody = document.getElementById('tbl-feeds');
+        if (!feeds.length) {
+          feedsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">暂无抓取记录（GitHub Actions 尚未运行或尚未创建 feeds 表）</td></tr>';
+        } else {
+          feedsBody.innerHTML = feeds.map(f => `
+            <tr>
+              <td><span class="tag">${f.source_name || f.source}</span></td>
+              <td>
+                <b>${f.title}</b><br>
+                <a href="${f.link}" target="_blank" rel="noopener" style="font-size:11px;color:#64748b;">查看原文 →</a>
+              </td>
+              <td>${f.pub_date || '-'}</td>
+              <td>
+                ${f.status === 'published'
+                  ? '<span class="badge-status badge-active">已发布</span>'
+                  : f.status === 'ignored'
+                    ? '<span class="badge-status badge-banned">已忽略</span>'
+                    : '<span class="badge-status badge-todo">待审核</span>'}
+              </td>
+              <td>${new Date(f.created_at).toLocaleString()}</td>
+              <td style="white-space:nowrap;">
+                ${f.status === 'pending' ? `
+                  <select id="feed-cat-${f.id}" style="font-size:12px;padding:3px 4px;margin-right:4px;">
+                    <option value="">选择板块</option>
+                    ${(window.CATEGORIES || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                    <option value="news">最新通知</option>
+                  </select>
+                  <button class="btn-action btn-success" onclick="publishFeed('${f.id}')">发布</button>
+                  <button class="btn-action btn-danger" onclick="ignoreFeed('${f.id}')">忽略</button>`
+                  : ''}
+              </td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-feeds').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">加载失败：${err.message || '请先在 Supabase 执行最新 SQL 创建 feeds 表'}</td></tr>`;
+      }
+
+      // 7. 加载纠错反馈
+      try {
+        const feedbacks = await window.Api.getFeedbacks();
+        const fbBody = document.getElementById('tbl-feedbacks');
+        if (!feedbacks.length) {
+          fbBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">暂无纠错反馈</td></tr>';
+        } else {
+          fbBody.innerHTML = feedbacks.map(f => `
+            <tr>
+              <td><code>${f.item_slug}</code></td>
+              <td><span class="badge-status badge-todo">${f.issue_type}</span></td>
+              <td>${f.description}</td>
+              <td>${f.contact || '匿名'}</td>
+              <td>${new Date(f.created_at).toLocaleDateString()}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-feedbacks').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${err.message}</td></tr>`;
+      }
+
+      // 7. 加载投稿
+      try {
+        const submissions = await window.Api.getSubmissions();
+        const subBody = document.getElementById('tbl-submissions');
+        if (!submissions.length) {
+          subBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">暂无投稿内容</td></tr>';
+        } else {
+          subBody.innerHTML = submissions.map(s => `
+            <tr>
+              <td><span class="tag">${s.cat}</span></td>
+              <td><b>${s.title}</b></td>
+              <td>${s.author_name}</td>
+              <td><span class="badge-status ${s.status === 'published' ? 'badge-active' : 'badge-todo'}">${s.status}</span></td>
+              <td>${new Date(s.created_at).toLocaleDateString()}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-submissions').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${err.message}</td></tr>`;
+      }
+    }
+
+    // 发布内容源（写入发布状态）
+    async function publishFeed(fid) {
+      const sel = document.getElementById('feed-cat-' + fid);
+      const cat = sel ? sel.value : '';
+      if (!cat) {
+        alert('请先为这条内容选择归属板块');
+        return;
+      }
+      if (!confirm('确认将该条官方内容发布到主站对应板块吗？')) return;
+      try {
+        await window.Api.updateFeedStatus(fid, 'published', cat);
+        alert('已发布！请记得同步到 data.js 主干数据文件后部署。');
+        loadAllAdminData();
+      } catch (err) {
+        alert('发布失败: ' + err.message);
+      }
+    }
+
+    // 忽略内容源
+    async function ignoreFeed(fid) {
+      if (!confirm('确认忽略该条内容吗？')) return;
+      try {
+        await window.Api.updateFeedStatus(fid, 'ignored');
+        loadAllAdminData();
+      } catch (err) {
+        alert('操作失败: ' + err.message);
+      }
+    }
+
+    async function toggleCommentReview(cid, newStatus) {
+      try {
+        await window.Api.updateCommentStatus(cid, newStatus);
+        alert(`评论已更新为：${newStatus === 'approved' ? '放行' : '屏蔽'}`);
+        loadAllAdminData();
+      } catch (err) {
+        alert('操作失败: ' + err.message);
+      }
+    }
+
+    async function toggleUserStatus(uid, newStatus) {
+      if (!confirm(`确定要将该用户状态变更为 ${newStatus} 吗？`)) return;
+      try {
+        await window.Api.updateUserStatus(uid, newStatus);
+        alert('状态更新成功！');
+        loadAllAdminData();
+      } catch (err) {
+        alert('操作失败: ' + err.message);
+      }
+    }
+
+    // 页面就绪自动加载
+    window.addEventListener('DOMContentLoaded', loadAllAdminData);
+  </script>
+</body>
+</html>

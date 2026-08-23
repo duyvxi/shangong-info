@@ -1,0 +1,41 @@
+# 内容自动抓取 - 定时工作流
+# 每 6 小时运行一次 scripts/fetch_feeds.py，将抓取的官网新条目写入 Supabase 待审表。
+# 需预先在仓库 Settings -> Secrets 配置：
+#   SUPABASE_URL / SUPABASE_ANON_KEY
+name: 抓取校园新内容
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # 每 6 小时一次（可改，如 每天两次: '0 1,13 * * *'）
+  workflow_dispatch: {}       # 允许在 GitHub 页面手动触发
+
+concurrency:
+  group: content-fetch
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install requests beautifulsoup4 supabase
+
+      - name: 运行抓取脚本
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: python scripts/fetch_feeds.py
+
+      - name: 提交数据文件（新抓取的条目与去重指纹会写回仓库，便于人工审核与部署）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feeds: 自动抓取校园新内容" || echo "无变更，跳过提交"
+          git push
