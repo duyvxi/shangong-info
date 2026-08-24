@@ -492,8 +492,9 @@
       const trs = item.table.rows
         .map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
         .join('');
+      const tableTitle = (item.table.title || '').trim() || '相关数据与明细标准';
       tableHtml = `
-        <h2 class="section-h2">相关数据与明细标准</h2>
+        <h2 class="section-h2">${esc(tableTitle)}</h2>
         <table class="meta-table">
           <thead><tr>${ths}</tr></thead>
           <tbody>${trs}</tbody>
@@ -522,7 +523,13 @@
         <p style="font-size:13.5px; color:var(--text-2); line-height:1.7;">${esc(item.body)}</p>`;
     }
 
-    // 键值属性表 (KV Table)
+    // 键值属性表 (KV Table) — 值为空或「—」的行自动隐藏
+    const isEmpty = (v) => {
+      if (v === null || v === undefined) return true;
+      const s = String(v).trim();
+      return s === '' || s === '—' || s === '-';
+    };
+
     const metaList = [
       ['适用对象', item.object],
       ['关键时间', item.time],
@@ -533,8 +540,12 @@
     ];
 
     const metaRows = metaList
+      .filter(([, v]) => !isEmpty(v))
       .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`)
       .join('');
+
+    // 是否包含「办理地点 / 所需材料」（用于 KV 表标题自适应）
+    const hasPlaceOrMaterial = !isEmpty(item.place) || !isEmpty(item.material);
 
     // 注意事项 Warning Box
     const notesHtml = item.notes
@@ -576,7 +587,7 @@
       ${sectionsHtml}
 
       <!-- 办事材料与联系方式表格 -->
-      <h2 class="section-h2">办事凭证与联系信息</h2>
+      <h2 class="section-h2">${hasPlaceOrMaterial ? '办事凭证与联系信息' : '关键信息与联系部门'}</h2>
       <table class="meta-table">
         <tbody>${metaRows}</tbody>
       </table>
