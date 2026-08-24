@@ -208,6 +208,15 @@ WHERE created_at >= NOW() - INTERVAL '30 days'
 GROUP BY keyword
 ORDER BY search_count DESC;
 
+-- 今日最新消息时效视图 (view_active_news: 自动过滤发布时间在 24 小时以内的有效通告)
+CREATE OR REPLACE VIEW public.view_active_news AS
+SELECT *
+FROM public.feeds
+WHERE status = 'published' 
+  AND cat = 'news'
+  AND published_at >= NOW() - INTERVAL '24 hours'
+ORDER BY published_at DESC;
+
 -- ==============================================================================
 -- 启用行级安全 (RLS)
 -- ==============================================================================
@@ -319,3 +328,4 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
 
 GRANT SELECT ON public.view_top_items TO anon, authenticated;
 GRANT SELECT ON public.view_search_ranking TO anon, authenticated;
+GRANT SELECT ON public.view_active_news TO anon, authenticated;

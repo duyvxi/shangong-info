@@ -396,6 +396,23 @@
 
           feedsBody.innerHTML = feeds.map(f => {
             const currentCatName = f.cat === 'news' ? '📢 今日最新消息' : (catList.find(c => c.id === f.cat)?.name || f.cat || '-');
+            
+            // 24小时时效计算（针对发布在今日最新消息的内容）
+            let expireInfoHtml = '';
+            let isExpired = false;
+            if (f.status === 'published' && f.cat === 'news' && f.published_at) {
+              const pubTime = new Date(f.published_at).getTime();
+              const now = Date.now();
+              const diffHours = (now - pubTime) / (1000 * 60 * 60);
+              if (diffHours >= 24) {
+                isExpired = true;
+                expireInfoHtml = `<div style="font-size:11px;color:#dc2626;margin-top:2px;">⏱️ 已超24小时（前台已自动下架）</div>`;
+              } else {
+                const remainHours = Math.max(1, Math.ceil(24 - diffHours));
+                expireInfoHtml = `<div style="font-size:11px;color:#15803d;margin-top:2px;">⏱️ 距自动下架还剩约 ${remainHours} 小时</div>`;
+              }
+            }
+
             return `
             <tr>
               <td><span class="tag">${f.source_name || f.source}</span></td>
@@ -405,10 +422,13 @@
                 <a href="${f.source_url || f.link || '#'}" target="_blank" rel="noopener" style="font-size:11px;color:#fa541c;">查看官方原文 →</a>
               </td>
               <td>${f.pub_date || '-'}</td>
-              <td><span class="tag" style="background:#fff1eb;color:#fa541c;font-weight:600;">${currentCatName}</span></td>
+              <td>
+                <span class="tag" style="background:#fff1eb;color:#fa541c;font-weight:600;">${currentCatName}</span>
+                ${expireInfoHtml}
+              </td>
               <td>
                 ${f.status === 'published'
-                  ? '<span class="badge-status badge-active">已发布</span>'
+                  ? (isExpired ? '<span class="badge-status badge-banned">已过期</span>' : '<span class="badge-status badge-active">已发布</span>')
                   : f.status === 'ignored'
                     ? '<span class="badge-status badge-banned">已忽略</span>'
                     : '<span class="badge-status badge-todo">待审核</span>'}
@@ -417,7 +437,7 @@
               <td style="white-space:nowrap;">
                 ${f.status === 'pending' ? `
                   <select id="feed-cat-${f.id}" style="font-size:12px;padding:4px 6px;margin-right:6px;border:1px solid #d1d5db;border-radius:4px;outline:none;background:#fff;">
-                    <option value="news" selected>📢 今日最新消息 (推荐)</option>
+                    <option value="news" selected>📢 今日最新消息 (推荐 · 24小时轮转)</option>
                     <optgroup label="—— 归档到各场景板块 ——">
                       ${categoryOptions}
                     </optgroup>
@@ -425,7 +445,12 @@
                   <button class="btn-action btn-success" onclick="publishFeed('${f.id}')">发布</button>
                   <button class="btn-action btn-danger" onclick="ignoreFeed('${f.id}')">忽略</button>`
                   : `
-                  <button class="btn-action btn-danger" onclick="ignoreFeed('${f.id}')">撤回/下架</button>
+                  <select id="feed-reassign-${f.id}" style="font-size:11px;padding:2px 4px;margin-right:4px;border:1px solid #d1d5db;border-radius:4px;outline:none;background:#fff;">
+                    <option value="">转归档到板块...</option>
+                    ${categoryOptions}
+                  </select>
+                  <button class="btn-action btn-success" onclick="reassignFeed('${f.id}')" title="将内容重新归档至常规分类板块">归档</button>
+                  <button class="btn-action btn-danger" onclick="ignoreFeed('${f.id}')">下架</button>
                 `}
               </td>
             </tr>
@@ -497,9 +522,27 @@
       }
     }
 
-    // 忽略内容源
+    // 重新转归档已发布内容
+    async function reassignFeed(fid) {
+      const sel = document.getElementById('feed-reassign-' + fid);
+      const cat = sel ? sel.value : '';
+      if (!cat) {
+        alert('请先选择要转入的目标常规板块');
+        return;
+      }
+      if (!confirm('确认将该条内容转入选中的长效分类板块吗？')) return;
+      try {
+        await window.Api.updateFeedStatus(fid, 'published', cat);
+        alert('已成功转入新板块！');
+        loadAllAdminData();
+      } catch (err) {
+        alert('操作失败: ' + err.message);
+      }
+    }
+
+    // 忽略/下架内容源
     async function ignoreFeed(fid) {
-      if (!confirm('确认忽略该条内容吗？')) return;
+      if (!confirm('确认下架/忽略该条内容吗？下架后前台将不再显示。')) return;
       try {
         await window.Api.updateFeedStatus(fid, 'ignored');
         loadAllAdminData();

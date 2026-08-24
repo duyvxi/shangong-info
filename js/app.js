@@ -378,7 +378,7 @@
       <div class="doc-header">
         <h1 class="doc-title">📢 今日最新消息 · 官方通知速递</h1>
         <div class="doc-meta-row">
-          <span class="tag pri-high">实时同步</span>
+          <span class="tag pri-high">24小时动态轮转</span>
           <span class="tag tag-dept">全校各部门直通</span>
           <span class="tag" style="background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0;">后台已人工审核</span>
           <span>每 6 小时自动巡检</span>
@@ -389,7 +389,7 @@
       <div class="callout-summary">
         <div class="callout-title">💡 动态速递说明</div>
         <div class="callout-body">
-          此处汇聚由自动化爬虫从学校官网、教务处、学生处等渠道抓取并经<b>管理员人工审核放行</b>的最新官方通告与动态。如需按类别查阅完整长效政策，请点击左侧场景目录。
+          此处汇聚由自动化爬虫从学校官网、教务处、学生处等渠道抓取并经<b>管理员人工审核放行</b>的最新官方通告。为保证资讯时效性，发布在【今日最新消息】的内容<b>在 24 小时后将自动下架轮转</b>。如需按类别查阅完整长效政策，请点击左侧场景目录。
         </div>
       </div>
 

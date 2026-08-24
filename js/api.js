@@ -609,11 +609,17 @@ const Api = {
         .from('feeds')
         .select('id, source, source_url, title, summary, pub_date, cat, status, published_at, created_at')
         .eq('status', 'published')
-        .order('created_at', { ascending: false })
+        .order('published_at', { ascending: false, nullsFirst: false })
         .limit(limit);
 
       if (cat && cat !== 'all') {
         query = query.eq('cat', cat);
+      }
+
+      // 针对【今日最新消息 (cat === 'news')】：实施 24 小时自动下架时效控制
+      if (cat === 'news') {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        query = query.gte('published_at', twentyFourHoursAgo);
       }
 
       const { data, error } = await query;
