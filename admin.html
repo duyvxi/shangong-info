@@ -175,6 +175,14 @@
     <div id="tab-pane-feeds" style="display:none;">
       <div class="dashboard-panel">
         <h3>🆕 官网/教务处/学生处 新内容自动抓取（每 6 小时）</h3>
+        <!-- 自动抓取暂停/恢复开关 -->
+        <div id="crawl-switch-box" style="display:flex; align-items:center; gap:14px; background:var(--sidebar-bg,#f8fafc); border:1px solid var(--border,#e5e7eb); border-radius:8px; padding:12px 16px; margin:4px 0 16px;">
+          <div style="flex:1;">
+            <div style="font-size:13px; font-weight:700; color:var(--text,#111827);" id="crawl-status-title">⏳ 正在读取抓取状态...</div>
+            <div style="font-size:12px; color:#64748b; margin-top:2px;" id="crawl-status-desc">自动爬虫将在每次 GitHub Actions 运行时检查该开关</div>
+          </div>
+          <button class="btn-action btn-danger" id="btn-toggle-crawl" onclick="toggleCrawlPause()" style="font-size:13px; padding:8px 18px; border-radius:6px; display:none;">暂停抓取</button>
+        </div>
         <p style="font-size:12px; color:#64748b; margin:-8px 0 14px;">
           下方为 GitHub Actions 定时抓取的官方最新发布。请人工审核：选择归属板块（可选择发布到【📢 今日最新消息】或归档至各场景板块）后点击「发布」即可在前端实时展示；
           无关内容可点击「忽略」。
@@ -371,6 +379,12 @@
       }
 
       // 6. 加载内容源自动抓取 (feeds)
+      // 6.0 加载自动抓取暂停/恢复开关状态
+      try {
+        await refreshCrawlSwitch();
+      } catch (err) {
+        console.warn('加载抓取开关状态失败:', err);
+      }
       try {
         const feeds = await window.Api.getFeeds(60);
         const feedsBody = document.getElementById('tbl-feeds');
@@ -501,6 +515,58 @@
         }
       } catch (err) {
         document.getElementById('tbl-submissions').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${err.message}</td></tr>`;
+      }
+    }
+
+    // 刷新自动抓取暂停/恢复开关状态
+    async function refreshCrawlSwitch() {
+      const titleEl = document.getElementById('crawl-status-title');
+      const descEl = document.getElementById('crawl-status-desc');
+      const btn = document.getElementById('btn-toggle-crawl');
+      if (!titleEl || !btn) return;
+
+      try {
+        const paused = (await window.Api.getSiteSetting('crawl_paused', 'false')) === 'true';
+        if (paused) {
+          titleEl.textContent = '⏸️ 自动抓取已暂停';
+          titleEl.style.color = '#dc2626';
+          descEl.textContent = '爬虫不会抓取新内容；点击右侧「恢复抓取」即可重新启用。';
+          btn.textContent = '恢复抓取';
+          btn.className = 'btn-action btn-success';
+          btn.style.display = 'inline-block';
+        } else {
+          titleEl.textContent = '🟢 自动抓取运行中';
+          titleEl.style.color = '#16a34a';
+          descEl.textContent = 'GitHub Actions 每 6 小时自动巡检官网；点击「暂停抓取」可临时停止。';
+          btn.textContent = '暂停抓取';
+          btn.className = 'btn-action btn-danger';
+          btn.style.display = 'inline-block';
+        }
+      } catch (err) {
+        titleEl.textContent = '⚠️ 无法读取抓取状态';
+        titleEl.style.color = '#d97706';
+        descEl.textContent = '请先在 Supabase 执行最新 SQL（创建 site_settings 表）后重试。';
+        btn.style.display = 'none';
+      }
+    }
+
+    // 暂停 / 恢复自动抓取
+    async function toggleCrawlPause() {
+      const btn = document.getElementById('btn-toggle-crawl');
+      try {
+        const currentlyPaused = (await window.Api.getSiteSetting('crawl_paused', 'false')) === 'true';
+        const nextPaused = !currentlyPaused;
+        const actionText = nextPaused ? '暂停自动抓取' : '恢复自动抓取';
+        if (!confirm(`确认${actionText}吗？${nextPaused ? '暂停后爬虫将不再抓取新内容，直到您恢复。' : '恢复后下一次定时任务将立即开始抓取。'}`)) return;
+
+        btn.disabled = true;
+        await window.Api.setSiteSetting('crawl_paused', String(nextPaused));
+        alert(nextPaused ? '已暂停自动抓取！' : '已恢复自动抓取！');
+        await refreshCrawlSwitch();
+      } catch (err) {
+        alert('操作失败: ' + err.message);
+      } finally {
+        btn.disabled = false;
       }
     }
 

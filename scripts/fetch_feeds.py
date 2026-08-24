@@ -70,12 +70,27 @@ def parse_links(html: str, base: str):
     return items
 
 
+def is_crawl_paused(supabase) -> bool:
+    """查询站点配置表 site_settings，判断是否处于暂停自动抓取状态。"""
+    try:
+        resp = supabase.table("site_settings").select("value").eq("key", "crawl_paused").maybe_single().execute()
+        return bool(resp.data and resp.data.get("value") == "true")
+    except Exception as e:
+        print(f"[warn] 查询暂停配置失败（默认继续抓取）: {e}")
+        return False
+
+
 def main():
     if not SUPABASE_URL or not SUPABASE_KEY:
         print("[error] 缺少 SUPABASE_URL / SUPABASE_ANON_KEY 环境变量")
         sys.exit(1)
 
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    # 后台暂停开关检查：若管理员已在后台暂停自动抓取，则直接退出
+    if is_crawl_paused(supabase):
+        print("[pause] 管理员已在后台暂停自动抓取，本次跳过。")
+        sys.exit(0)
 
     # 拉取已入库指纹，避免重复写入
     known = set()

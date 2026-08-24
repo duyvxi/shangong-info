@@ -146,6 +146,17 @@ CREATE INDEX IF NOT EXISTS idx_feeds_status ON public.feeds(status);
 CREATE INDEX IF NOT EXISTS idx_feeds_source ON public.feeds(source);
 CREATE INDEX IF NOT EXISTS idx_feeds_fingerprint ON public.feeds(fingerprint);
 
+-- 7.1 站点配置表 (site_settings)
+-- 用于后台控制自动抓取等站点级开关（如 crawl_paused 暂停自动爬虫）
+CREATE TABLE IF NOT EXISTS public.site_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+INSERT INTO public.site_settings (key, value)
+VALUES ('crawl_paused', 'false')
+ON CONFLICT (key) DO NOTHING;
+
 -- 8. 事项浏览埋点流水表 (item_views)
 CREATE TABLE IF NOT EXISTS public.item_views (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -227,6 +238,7 @@ ALTER TABLE public.comment_likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.feedbacks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.feeds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.item_views ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.search_keywords ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_stats ENABLE ROW LEVEL SECURITY;
@@ -317,6 +329,16 @@ CREATE POLICY "Feeds insertable by fetch bot" ON public.feeds FOR INSERT WITH CH
 
 DROP POLICY IF EXISTS "Feeds updatable by admin" ON public.feeds;
 CREATE POLICY "Feeds updatable by admin" ON public.feeds FOR UPDATE USING (true) WITH CHECK (true);
+
+-- site_settings 策略（站点配置：任何人可读，后台可更新）
+DROP POLICY IF EXISTS "Site settings viewable by everyone" ON public.site_settings;
+CREATE POLICY "Site settings viewable by everyone" ON public.site_settings FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Site settings updatable by admin" ON public.site_settings;
+CREATE POLICY "Site settings updatable by admin" ON public.site_settings FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Site settings insertable by admin" ON public.site_settings;
+CREATE POLICY "Site settings insertable by admin" ON public.site_settings FOR INSERT WITH CHECK (true);
 
 -- ==============================================================================
 -- 统一授予 anon 与 authenticated 角色全部访问权限

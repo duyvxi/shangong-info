@@ -683,6 +683,48 @@ const Api = {
     if (error) throw error;
     return true;
   },
+
+  // ==========================================
+  // 站点配置 (Site Settings)
+  // ==========================================
+
+  /**
+   * 读取站点配置项
+   * @param {string} key 配置键（如 crawl_paused）
+   * @param {string} fallback 缺省值
+   */
+  async getSiteSetting(key, fallback = 'false') {
+    if (!this.isConfigured() || !supabaseClient) return fallback;
+    try {
+      const { data, error } = await supabaseClient
+        .from('site_settings')
+        .select('value')
+        .eq('key', key)
+        .maybeSingle();
+      if (error || !data) return fallback;
+      return data.value;
+    } catch (err) {
+      console.warn('读取站点配置失败:', err);
+      return fallback;
+    }
+  },
+
+  /**
+   * 写入站点配置项（不存在则插入，存在则更新）
+   * @param {string} key 配置键
+   * @param {string} value 配置值
+   */
+  async setSiteSetting(key, value) {
+    if (!this.isConfigured() || !supabaseClient) {
+      throw new Error('请先配置 Supabase 后端凭证');
+    }
+    const now = new Date().toISOString();
+    const { error } = await supabaseClient
+      .from('site_settings')
+      .upsert({ key, value, updated_at: now }, { onConflict: 'key' });
+    if (error) throw error;
+    return true;
+  },
 };
 
 // 挂载到全局
