@@ -512,10 +512,13 @@
         alert('请先为这条内容选择归属板块');
         return;
       }
-      if (!confirm('确认将该条官方内容发布到主站对应板块吗？')) return;
+      const isNews = cat === 'news';
+      if (!confirm(`确认将该条官方内容发布到${isNews ? '【今日最新消息】(24小时自动轮转)' : '主站对应场景板块'}吗？发布后前台将立即显示。`)) return;
       try {
         await window.Api.updateFeedStatus(fid, 'published', cat);
-        alert('已发布！请记得同步到 data.js 主干数据文件后部署。');
+        alert(isNews
+          ? '已发布到【今日最新消息】！将在 24 小时后自动下架。'
+          : '已发布到对应板块，前台已实时显示。如需补充更完整的图文攻略，可同步到 data.js 主干数据文件。');
         loadAllAdminData();
       } catch (err) {
         alert('发布失败: ' + err.message);

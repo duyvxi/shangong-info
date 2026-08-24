@@ -620,6 +620,9 @@ const Api = {
       if (cat === 'news') {
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         query = query.gte('published_at', twentyFourHoursAgo);
+      } else if (cat === 'all') {
+        // 仅返回发布到常规场景板块的内容（不含 news，news 单独展示在今日最新消息）
+        query = query.neq('cat', 'news').not('cat', 'is', null);
       }
 
       const { data, error } = await query;
@@ -632,6 +635,33 @@ const Api = {
       console.warn('拉取已发布消息异常:', err);
       return [];
     }
+  },
+
+  /**
+   * 将已发布的动态内容转换为前端可渲染的条目结构（与 data.js ITEMS 结构对齐）
+   * @param {object} f feeds 记录
+   */
+  feedToItem(f) {
+    return {
+      id: 'feed-' + f.id,
+      slug: 'feed-' + f.id,
+      cat: f.cat,
+      priority: '中',
+      title: f.title,
+      object: '以官方通知为准',
+      time: f.pub_date || '近期发布',
+      dept: f.source_name || f.source || '学校官方',
+      place: '—',
+      material: '—',
+      phone: '',
+      url: f.source_url || f.link || '#',
+      summary: f.summary || f.title,
+      date: (f.pub_date || (f.published_at ? f.published_at.slice(0, 10) : '')) || '',
+      body: f.summary || f.title,
+      steps: [],
+      notes: '该内容由后台审核自动发布，详情以官方通知原文为准。',
+      isDynamic: true,
+    };
   },
 
   /**

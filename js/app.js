@@ -6,6 +6,7 @@
   let query = '';
   let currentUser = null;
   let expandedCats = new Set(['report']); // 默认展开第一个分类
+  let dynamicItems = []; // 后台审核发布到常规分类的动态内容（异步拉取后合并渲染）
 
   // DOM 节点引用
   const treeNavEl = document.getElementById('tree-nav');
@@ -300,8 +301,8 @@
 
     let html = '';
     CATEGORIES.forEach((cat) => {
-      // 过滤当前搜索条件下的条目
-      const catItems = ITEMS.filter((item) => {
+      // 过滤当前搜索条件下的条目（合并静态 ITEMS + 后台审核发布的动态条目）
+      const catItems = [...ITEMS, ...dynamicItems].filter((item) => {
         if (item.cat !== cat.id) return false;
         if (!query) return true;
         const hay = [item.title, item.summary, item.dept, item.object].join(' ').toLowerCase();
@@ -311,15 +312,16 @@
       if (query && catItems.length === 0) return; // 搜索时隐藏无匹配项的目录组
 
       const isExpanded = expandedCats.has(cat.id) || !!query;
-      const count = ITEMS.filter((i) => i.cat === cat.id).length;
+      const count = catItems.length;
 
       const childrenHtml = catItems
         .map((item) => {
           const isActive = item.slug === currentSlug && currentCat !== 'news';
+          const isDynamic = item.isDynamic;
           return `
             <a class="tree-item ${isActive ? 'active' : ''}" href="#/section/${cat.id}/item/${item.slug}" data-slug="${item.slug}">
-              <span class="tree-item-dot"></span>
-              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(item.title)}</span>
+              <span class="tree-item-dot" style="${isDynamic ? 'background:var(--brand); width:6px; height:6px;' : ''}"></span>
+              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(item.title)}${isDynamic ? ' <span style="color:var(--accent); font-weight:600;">· NEW</span>' : ''}</span>
             </a>`;
         })
         .join('');
@@ -877,15 +879,15 @@
       expandedCats.add(currentCat);
       if (parts[2] === 'item' && parts[3]) {
         currentSlug = parts[3];
-        foundItem = ITEMS.find((i) => i.slug === currentSlug);
+        foundItem = [...ITEMS, ...dynamicItems].find((i) => i.slug === currentSlug);
       } else {
-        // 如果只选了分类，默认打开该分类下第一个事项
-        foundItem = ITEMS.find((i) => i.cat === currentCat);
+        // 如果只选了分类，默认打开该分类下第一个事项（含动态条目）
+        foundItem = [...ITEMS, ...dynamicItems].find((i) => i.cat === currentCat);
         if (foundItem) currentSlug = foundItem.slug;
       }
     } else if (raw) {
-      // 尝试直接匹配 slug
-      foundItem = ITEMS.find((i) => i.slug === raw);
+      // 尝试直接匹配 slug（含动态条目）
+      foundItem = [...ITEMS, ...dynamicItems].find((i) => i.slug === raw);
       if (foundItem) {
         currentSlug = foundItem.slug;
         currentCat = foundItem.cat;
@@ -917,9 +919,9 @@
       query = e.target.value.trim();
       renderTreeSidebar();
 
-      // 如果有搜索结果，自动展开所有分类并选中第一个匹配项
+      // 如果有搜索结果，自动展开所有分类并选中第一个匹配项（含动态条目）
       if (query) {
-        const matched = ITEMS.filter((item) => {
+        const matched = [...ITEMS, ...dynamicItems].filter((item) => {
           const hay = [item.title, item.summary, item.dept, item.object].join(' ').toLowerCase();
           return hay.includes(query.toLowerCase());
         });
@@ -938,6 +940,27 @@
     });
   }
 
+  // ---------- 6.5 动态内容拉取（后台审核发布到常规分类的实时合并） ----------
+  async function loadDynamicItems() {
+    if (!window.Api || !window.Api.isConfigured()) return;
+    try {
+      const feeds = await window.Api.getPublishedFeeds('all', 100);
+      // 过滤出存在有效分类的已发布内容（news 已经单独在今日最新消息展示）
+      const validCats = new Set(CATEGORIES.map((c) => c.id));
+      dynamicItems = (feeds || [])
+        .filter((f) => f.cat && validCats.has(f.cat))
+        .map((f) => window.Api.feedToItem(f));
+      renderTreeSidebar();
+      // 若当前正是动态条目，则重新渲染正文
+      if (currentSlug && dynamicItems.some((i) => i.slug === currentSlug)) {
+        const cur = dynamicItems.find((i) => i.slug === currentSlug);
+        renderMainContent(cur);
+      }
+    } catch (err) {
+      console.warn('拉取动态分类内容失败:', err);
+    }
+  }
+
   // 快捷键 Ctrl + K 唤起搜索框
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -954,5 +977,6 @@
 
   renderOfficialLinks();
   initAuth();
+  loadDynamicItems(); // 拉取后台发布的动态分类内容
   syncRoute();
 })();
