@@ -598,6 +598,37 @@ const Api = {
   },
 
   /**
+   * 获取前台展示的已审核发布内容流
+   * @param {string|null} cat 板块分类（如 'news' 或具体板块 key，传 null 或 'all' 则查全部已发布）
+   * @param {number} limit 最大获取条数
+   */
+  async getPublishedFeeds(cat = 'news', limit = 30) {
+    if (!this.isConfigured() || !supabaseClient) return [];
+    try {
+      let query = supabaseClient
+        .from('feeds')
+        .select('id, source, source_url, title, summary, pub_date, cat, status, published_at, created_at')
+        .eq('status', 'published')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (cat && cat !== 'all') {
+        query = query.eq('cat', cat);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.warn('获取已发布消息失败:', error.message);
+        return [];
+      }
+      return data || [];
+    } catch (err) {
+      console.warn('拉取已发布消息异常:', err);
+      return [];
+    }
+  },
+
+  /**
    * 更新内容源状态（发布/忽略）
    * @param {string} id feeds 记录 UUID
    * @param {string} status pending/published/ignored

@@ -1,23 +1,24 @@
-// 页面交互与路由逻辑（集成 Supabase 互动功能）
+// 山商信息通 · GitBook 知识库架构交互逻辑
 (function () {
   const catMap = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
-  let activeCat = 'all';
+  let currentSlug = 'xinsheng-baodao'; // 默认当前选中第一篇
+  let currentCat = 'report';
   let query = '';
   let currentUser = null;
+  let expandedCats = new Set(['report']); // 默认展开第一个分类
 
-  // DOM
-  const cardsEl = document.getElementById('cards');
-  const emptyEl = document.getElementById('empty');
-  const catsEl = document.getElementById('cats');
-  const linksEl = document.getElementById('links');
+  // DOM 节点引用
+  const treeNavEl = document.getElementById('tree-nav');
+  const docArticleEl = document.getElementById('doc-article');
+  const emptyStateEl = document.getElementById('empty-state');
+  const officialLinksGrid = document.getElementById('official-links-grid');
   const searchInput = document.getElementById('search');
-  const heroInput = document.getElementById('hero-search');
-  const heroEl = document.getElementById('hero');
-  const listView = document.getElementById('list-view');
-  const detailView = document.getElementById('detail-view');
   const userArea = document.getElementById('user-area');
+  const commentFeedEl = document.getElementById('sidebar-comment-feed');
+  const commentCountBadge = document.getElementById('sidebar-comment-count');
+  const commentInputEl = document.getElementById('comment-input');
 
-  // ---------- 工具函数 ----------
+  // ---------- 基础工具函数 ----------
   function esc(str) {
     if (!str) return '';
     return String(str)
@@ -34,7 +35,12 @@
     return 'pri-low';
   }
 
-  // ---------- 模态框全局控制 ----------
+  window.scrollToOfficialLinks = function () {
+    const sec = document.getElementById('official-channels-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // ---------- 模态框控制 ----------
   window.showModal = function (id) {
     const modal = document.getElementById(id);
     if (modal) modal.style.display = 'flex';
@@ -45,19 +51,20 @@
     if (modal) modal.style.display = 'none';
   };
 
-  // 打开反馈纠错弹窗
   window.openFeedbackModal = function (slug, title) {
     document.getElementById('fb-slug').value = slug;
     document.getElementById('fb-item-title').textContent = title;
     document.getElementById('fb-desc').value = '';
     document.getElementById('fb-contact').value = '';
     const msgEl = document.getElementById('fb-msg');
-    msgEl.textContent = '';
-    msgEl.className = 'form-msg';
+    if (msgEl) {
+      msgEl.textContent = '';
+      msgEl.className = 'form-msg';
+    }
     showModal('modal-feedback');
   };
 
-  // ---------- Auth 状态维护与账号密码登录 ----------
+  // ---------- Auth 状态维护与登录注册 ----------
   let authMode = 'login'; // 'login' | 'register'
 
   async function initAuth() {
@@ -82,6 +89,7 @@
   }
 
   function renderUserArea() {
+    if (!userArea) return;
     if (currentUser) {
       const name = getUserDisplayName();
       userArea.innerHTML = `
@@ -114,17 +122,17 @@
     }
 
     if (mode === 'login') {
-      tabLogin.classList.add('active');
-      tabReg.classList.remove('active');
-      groupName.style.display = 'none';
-      descEl.textContent = '输入你的账号（手机号或学号）和密码完成登录。';
-      btn.textContent = '立即登录';
+      if (tabLogin) tabLogin.classList.add('active');
+      if (tabReg) tabReg.classList.remove('active');
+      if (groupName) groupName.style.display = 'none';
+      if (descEl) descEl.textContent = '输入你的账号（手机号或学号）和密码完成登录。';
+      if (btn) btn.textContent = '立即登录';
     } else {
-      tabReg.classList.add('active');
-      tabLogin.classList.remove('active');
-      groupName.style.display = 'block';
-      descEl.textContent = '自主设置账号、昵称与密码，秒级完成注册，无需等待验证码。';
-      btn.textContent = '立即注册并登录';
+      if (tabReg) tabReg.classList.add('active');
+      if (tabLogin) tabLogin.classList.remove('active');
+      if (groupName) groupName.style.display = 'block';
+      if (descEl) descEl.textContent = '自主设置账号、昵称与密码，秒级完成注册，无需等待验证码。';
+      if (btn) btn.textContent = '立即注册并登录';
     }
   };
 
@@ -171,17 +179,9 @@
 
       setTimeout(() => {
         hideModal('modal-auth');
-        // 如果当前处于详情页，重新加载当前事项的点赞与评论状态
-        if (location.hash.includes('/item/')) {
-          const parts = location.hash.replace(/^#\/?/, '').split('/');
-          const itemIdx = parts.indexOf('item');
-          if (itemIdx !== -1 && parts[itemIdx + 1]) {
-            const slug = parts[itemIdx + 1];
-            loadLikes(slug);
-            loadComments(slug);
-          }
-        }
-      }, 1000);
+        loadLikes(currentSlug);
+        loadComments(currentSlug);
+      }, 800);
     } catch (err) {
       msgEl.textContent = err.message || '操作失败，请重试';
       msgEl.className = 'form-msg error';
@@ -196,20 +196,12 @@
       await window.Api.signOut();
       currentUser = null;
       renderUserArea();
-      // 刷新当前页面状态
-      if (location.hash.includes('/item/')) {
-        const parts = location.hash.replace(/^#\/?/, '').split('/');
-        const itemIdx = parts.indexOf('item');
-        if (itemIdx !== -1 && parts[itemIdx + 1]) {
-          const slug = parts[itemIdx + 1];
-          loadLikes(slug);
-          loadComments(slug);
-        }
-      }
+      loadLikes(currentSlug);
+      loadComments(currentSlug);
     }
   };
 
-  // ---------- 纠错提交 ----------
+  // ---------- 纠错与投稿 ----------
   window.handleFeedbackSubmit = async function () {
     const slug = document.getElementById('fb-slug').value;
     const issueType = document.getElementById('fb-type').value;
@@ -247,11 +239,10 @@
     }
   };
 
-  // ---------- 投稿提交 ----------
   window.handlePostSubmit = async function () {
-    if (!currentUser && window.Api.isConfigured()) {
-      alert('请先点击右上角登录后再投稿！');
-      showModal('modal-auth');
+    if (!currentUser && window.Api && window.Api.isConfigured()) {
+      alert('请先登录后再投稿！');
+      showAuthModal();
       return;
     }
 
@@ -282,7 +273,7 @@
         authorName: getUserDisplayName(),
       });
 
-      msgEl.textContent = '投稿成功！内容进入待审池，审核通过后将展示在网站上。';
+      msgEl.textContent = '投稿成功！内容进入待审池，审核通过后将展示在知识库中。';
       msgEl.className = 'form-msg success';
       setTimeout(() => hideModal('modal-submit'), 1800);
     } catch (err) {
@@ -294,11 +285,453 @@
     }
   };
 
-  // ---------- 互动点赞与评论业务 ----------
+  // ---------- 1. 树形目录渲染 (Sidebar Tree View) ----------
+  function toggleGroup(catId) {
+    if (expandedCats.has(catId)) {
+      expandedCats.delete(catId);
+    } else {
+      expandedCats.add(catId);
+    }
+    renderTreeSidebar();
+  }
+
+  function renderTreeSidebar() {
+    if (!treeNavEl) return;
+
+    let html = '';
+    CATEGORIES.forEach((cat) => {
+      // 过滤当前搜索条件下的条目
+      const catItems = ITEMS.filter((item) => {
+        if (item.cat !== cat.id) return false;
+        if (!query) return true;
+        const hay = [item.title, item.summary, item.dept, item.object].join(' ').toLowerCase();
+        return hay.includes(query.toLowerCase());
+      });
+
+      if (query && catItems.length === 0) return; // 搜索时隐藏无匹配项的目录组
+
+      const isExpanded = expandedCats.has(cat.id) || !!query;
+      const count = ITEMS.filter((i) => i.cat === cat.id).length;
+
+      const childrenHtml = catItems
+        .map((item) => {
+          const isActive = item.slug === currentSlug && currentCat !== 'news';
+          return `
+            <a class="tree-item ${isActive ? 'active' : ''}" href="#/section/${cat.id}/item/${item.slug}" data-slug="${item.slug}">
+              <span class="tree-item-dot"></span>
+              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(item.title)}</span>
+            </a>`;
+        })
+        .join('');
+
+      html += `
+        <div class="tree-group ${isExpanded ? 'expanded' : ''}" data-cat="${cat.id}">
+          <div class="tree-parent" onclick="window._toggleTree('${cat.id}')">
+            <div class="tree-parent-left">
+              <span class="tree-arrow">▶</span>
+              <span>${esc(cat.name)}</span>
+            </div>
+            <span class="tree-badge">${count}</span>
+          </div>
+          <div class="tree-children">
+            ${childrenHtml}
+          </div>
+        </div>`;
+    });
+
+    // 在目录最下方添加独立条目【今日最新消息】（不隶属于任何分类）
+    const isNewsActive = currentCat === 'news';
+    html += `
+      <div class="tree-bottom-divider"></div>
+      <a class="tree-standalone-item ${isNewsActive ? 'active' : ''}" href="#/news" title="查看后台审核通过的官方自动更新资讯">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span>📢</span>
+          <span>今日最新消息</span>
+        </div>
+        <span class="tree-badge" style="${isNewsActive ? 'background:rgba(255,255,255,0.25);color:#fff;' : 'background:#fff1eb;color:#fa541c;border-color:#ffd8bf;'}">NEW</span>
+      </a>
+    `;
+
+    treeNavEl.innerHTML = html;
+  }
+
+  window._toggleTree = function (catId) {
+    toggleGroup(catId);
+  };
+
+  // ---------- 2. 中间栏主正文渲染 (GitBook 知识块排版) ----------
+  async function renderNewsFeedView() {
+    if (!docArticleEl) return;
+    docArticleEl.style.display = 'block';
+    if (emptyStateEl) emptyStateEl.style.display = 'none';
+
+    // 渲染骨架加载态
+    docArticleEl.innerHTML = `
+      <!-- 面包屑 -->
+      <nav class="breadcrumb">
+        <a href="#/">知识库</a>
+        <span class="sep">/</span>
+        <span style="color:var(--text); font-weight:500;">今日最新消息</span>
+      </nav>
+
+      <!-- 文档头 -->
+      <div class="doc-header">
+        <h1 class="doc-title">📢 今日最新消息 · 官方通知速递</h1>
+        <div class="doc-meta-row">
+          <span class="tag pri-high">实时同步</span>
+          <span class="tag tag-dept">全校各部门直通</span>
+          <span class="tag" style="background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0;">后台已人工审核</span>
+          <span>每 6 小时自动巡检</span>
+        </div>
+      </div>
+
+      <!-- Callout 核心摘要 -->
+      <div class="callout-summary">
+        <div class="callout-title">💡 动态速递说明</div>
+        <div class="callout-body">
+          此处汇聚由自动化爬虫从学校官网、教务处、学生处等渠道抓取并经<b>管理员人工审核放行</b>的最新官方通告与动态。如需按类别查阅完整长效政策，请点击左侧场景目录。
+        </div>
+      </div>
+
+      <h2 class="section-h2">已审核通过的最新通告</h2>
+      <div id="news-feed-list" class="news-feed-container">
+        <div style="text-align:center; padding:40px 0; color:var(--text-muted); font-size:13px;">
+          正在拉取今日最新审核资讯...
+        </div>
+      </div>
+    `;
+
+    const feedContainer = document.getElementById('news-feed-list');
+
+    try {
+      let feeds = [];
+      if (window.Api && window.Api.isConfigured()) {
+        feeds = await window.Api.getPublishedFeeds('news', 30);
+      }
+
+      if (!feeds || feeds.length === 0) {
+        if (feedContainer) {
+          feedContainer.innerHTML = `
+            <div style="background:var(--sidebar-bg); border:1px dashed var(--border); border-radius:8px; padding:36px 20px; text-align:center;">
+              <p style="font-size:24px; margin-bottom:8px;">📭</p>
+              <p style="font-size:13.5px; font-weight:600; color:var(--text);">今日暂无新审核发布的通知</p>
+              <p style="font-size:12px; color:var(--text-3); margin-top:4px;">后台抓取池每 6 小时自动巡检官网，有最新通知经审核后会在此第一时间呈现。</p>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      if (feedContainer) {
+        feedContainer.innerHTML = feeds
+          .map((f) => `
+            <div class="news-card">
+              <div class="news-card-head">
+                <span class="tag tag-dept">🏛️ ${esc(f.source_name || f.source || '官方发布')}</span>
+                <span style="font-size:11px; color:var(--text-muted);">${f.pub_date || '近期发布'}</span>
+              </div>
+              <h3 class="news-card-title">${esc(f.title)}</h3>
+              ${f.summary ? `<div class="news-card-summary">${esc(f.summary)}</div>` : ''}
+              <div class="news-card-foot">
+                <span>审核发布于 ${new Date(f.published_at || f.created_at).toLocaleDateString()}</span>
+                <a href="${esc(f.source_url || f.link || '#')}" target="_blank" rel="noopener" style="font-weight:500; font-size:12px;">
+                  查看官方通知原文 ↗
+                </a>
+              </div>
+            </div>
+          `)
+          .join('');
+      }
+    } catch (err) {
+      if (feedContainer) {
+        feedContainer.innerHTML = `<div style="color:var(--pri-high); text-align:center; padding:20px 0;">拉取动态失败：${esc(err.message)}</div>`;
+      }
+    }
+  }
+
+  function renderMainContent(item) {
+    if (!docArticleEl) return;
+
+    if (currentCat === 'news') {
+      renderNewsFeedView();
+      return;
+    }
+
+    if (!item) {
+      docArticleEl.style.display = 'none';
+      if (emptyStateEl) emptyStateEl.style.display = 'block';
+      return;
+    }
+
+    docArticleEl.style.display = 'block';
+    if (emptyStateEl) emptyStateEl.style.display = 'none';
+
+    const c = catMap[item.cat] || { name: item.cat };
+
+    // 步骤卡片流
+    let stepsHtml = '';
+    if (item.steps && item.steps.length) {
+      const stepItems = item.steps
+        .map((s, idx) => `
+          <div class="step-card">
+            <span class="step-num">${idx + 1}</span>
+            <span>${esc(s)}</span>
+          </div>`)
+        .join('');
+      stepsHtml = `
+        <h2 class="section-h2">办理流程与具体步骤</h2>
+        <div class="steps-list">${stepItems}</div>`;
+    }
+
+    // 数据表
+    let tableHtml = '';
+    if (item.table && item.table.rows) {
+      const ths = (item.table.headers || []).map((h) => `<th>${esc(h)}</th>`).join('');
+      const trs = item.table.rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
+        .join('');
+      tableHtml = `
+        <h2 class="section-h2">相关数据与明细标准</h2>
+        <table class="meta-table">
+          <thead><tr>${ths}</tr></thead>
+          <tbody>${trs}</tbody>
+        </table>`;
+    }
+
+    // 结构化正文 Sections
+    let sectionsHtml = '';
+    if (item.sections && item.sections.length) {
+      sectionsHtml = item.sections
+        .map((sec, idx) => {
+          const inner = [];
+          if (sec.lead) inner.push(`<p style="font-size:13px; color:var(--text); font-weight:500;">${esc(sec.lead)}</p>`);
+          if (sec.body) inner.push(`<p style="font-size:13px; color:var(--text-2); line-height:1.65;">${esc(sec.body)}</p>`);
+          if (sec.bullet && sec.bullet.length) {
+            inner.push(`<ul style="font-size:13px; color:var(--text-2); padding-left:20px;">${sec.bullet.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`);
+          }
+          return `
+            <h2 class="section-h2">${esc(sec.title || '要点说明 ' + (idx + 1))}</h2>
+            <div>${inner.join('')}</div>`;
+        })
+        .join('');
+    } else if (item.body) {
+      sectionsHtml = `
+        <h2 class="section-h2">政策详细解读</h2>
+        <p style="font-size:13.5px; color:var(--text-2); line-height:1.7;">${esc(item.body)}</p>`;
+    }
+
+    // 键值属性表 (KV Table)
+    const metaList = [
+      ['适用对象', item.object],
+      ['关键时间', item.time],
+      ['负责部门', item.dept],
+      ['联系电话', item.phone ? `<a href="tel:${esc(item.phone)}">${esc(item.phone)}</a>` : '—'],
+      ['办理地点', item.place || '—'],
+      ['所需材料', item.material || '—'],
+    ];
+
+    const metaRows = metaList
+      .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`)
+      .join('');
+
+    // 注意事项 Warning Box
+    const notesHtml = item.notes
+      ? `<div class="warning-box"><b>⚠️ 注意事项与提示：</b>${esc(item.notes)}</div>`
+      : '';
+
+    docArticleEl.innerHTML = `
+      <!-- 面包屑 -->
+      <nav class="breadcrumb">
+        <a href="#/section/${esc(item.cat)}">${esc(c.name)}</a>
+        <span class="sep">/</span>
+        <span style="color:var(--text); font-weight:500;">${esc(item.title)}</span>
+      </nav>
+
+      <!-- 文档头 -->
+      <div class="doc-header">
+        <h1 class="doc-title">${esc(item.title)}</h1>
+        <div class="doc-meta-row">
+          <span class="tag ${priClass(item.priority)}">${esc(item.priority)}优先级</span>
+          <span class="tag tag-dept">${esc(item.dept || '学校职能部门')}</span>
+          <span class="tag" style="background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0;">已核实</span>
+          <span>${item.date ? '发布于 ' + esc(item.date) : '以官方最新通知为准'}</span>
+        </div>
+      </div>
+
+      <!-- Callout 核心摘要 -->
+      <div class="callout-summary">
+        <div class="callout-title">💡 政策核心摘要</div>
+        <div class="callout-body">${esc(item.summary)}</div>
+      </div>
+
+      <!-- 办理流程 -->
+      ${stepsHtml}
+
+      <!-- 数据表 -->
+      ${tableHtml}
+
+      <!-- 详细解读 -->
+      ${sectionsHtml}
+
+      <!-- 办事材料与联系方式表格 -->
+      <h2 class="section-h2">办事凭证与联系信息</h2>
+      <table class="meta-table">
+        <tbody>${metaRows}</tbody>
+      </table>
+
+      <!-- 注意事项 -->
+      ${notesHtml}
+
+      <!-- 底部互动与纠错反馈条 -->
+      <div class="doc-footer-action">
+        <button class="btn-like" id="btn-like-${esc(item.slug)}" onclick="handleLikeClick('${esc(item.slug)}')">
+          ❤️ 政策有用 (<span id="like-count-${esc(item.slug)}">0</span>)
+        </button>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <a href="${esc(item.url)}" target="_blank" rel="noopener" style="font-size:12px; color:var(--text-3);">
+            查看官方原文 ↗
+          </a>
+          <button class="btn btn-outline btn-sm" onclick="openFeedbackModal('${esc(item.slug)}', '${esc(item.title)}')">
+            🚩 纠错与失效反馈
+          </button>
+        </div>
+      </div>
+    `;
+
+    // 重新拉取当前事项的点赞数据
+    loadLikes(item.slug);
+  }
+
+  // ---------- 3. 右侧栏评论与避坑互动联动 ----------
+  async function loadLikes(slug) {
+    if (!window.Api || !window.Api.isConfigured()) return;
+    const { count, hasLiked } = await window.Api.getLikes(slug, currentUser ? currentUser.id : null);
+    const btn = document.getElementById('btn-like-' + slug);
+    const countEl = document.getElementById('like-count-' + slug);
+    if (btn && countEl) {
+      countEl.textContent = count;
+      if (hasLiked) btn.classList.add('liked');
+      else btn.classList.remove('liked');
+    }
+  }
+
+  async function loadComments(slug) {
+    if (!commentFeedEl) return;
+
+    if (!window.Api || !window.Api.isConfigured()) {
+      commentFeedEl.innerHTML = `
+        <div style="font-size:12px; color:var(--text-muted); text-align:center; padding:30px 10px;">
+          暂未配置云端存储，配置 Supabase 后即可开启实时避坑交流。
+        </div>`;
+      if (commentCountBadge) commentCountBadge.textContent = '0条';
+      return;
+    }
+
+    try {
+      const comments = await window.Api.getComments(slug, currentUser ? currentUser.id : null);
+      if (commentCountBadge) {
+        commentCountBadge.textContent = `${comments.length}条`;
+      }
+
+      if (!comments.length) {
+        commentFeedEl.innerHTML = `
+          <div style="font-size:12px; color:var(--text-muted); text-align:center; padding:30px 10px; background:var(--sidebar-bg); border-radius:6px; border:1px dashed var(--border);">
+            暂无同学避坑留言，来发表第一条经验或提问吧～
+          </div>`;
+        return;
+      }
+
+      commentFeedEl.innerHTML = comments
+        .map((c) => {
+          const avatarChar = (c.user_name || '学').slice(0, 1);
+          const repliesHtml = (c.replies && c.replies.length > 0)
+            ? `<div class="comment-replies">
+                ${c.replies.map((r) => `
+                  <div class="reply-item">
+                    <span class="reply-user">${esc(r.user_name)}</span>
+                    ${r.reply_to_name ? `<span style="color:var(--text-muted);">回复 @${esc(r.reply_to_name)}</span>` : ''}：
+                    <span>${esc(r.content)}</span>
+                  </div>
+                `).join('')}
+              </div>`
+            : '';
+
+          return `
+            <div class="comment-card" id="comment-${c.id}">
+              <div class="comment-user-row">
+                <div class="comment-avatar">${esc(avatarChar)}</div>
+                <span class="comment-username">${esc(c.user_name)}</span>
+                <span class="comment-time">${new Date(c.created_at).toLocaleDateString()}</span>
+              </div>
+              <div class="comment-body-text">${esc(c.content)}</div>
+              <div class="comment-actions">
+                <button class="comment-act-btn ${c.has_liked ? 'liked' : ''}" id="btn-c-like-${c.id}" onclick="handleCommentLike('${c.id}', '${slug}')">
+                  👍 <span id="c-like-cnt-${c.id}">${c.like_count || 0}</span>
+                </button>
+                <button class="comment-act-btn" onclick="toggleReplyBox('${c.id}', '${esc(c.user_name)}')">
+                  💬 回复
+                </button>
+              </div>
+
+              <!-- 行内回复框 -->
+              <div class="inline-reply-box" id="reply-box-${c.id}" style="display:none; margin-top:8px;">
+                <textarea id="reply-input-${c.id}" rows="2" style="width:100%; font-size:12px; padding:6px; border:1px solid var(--border); border-radius:4px;" placeholder="写下你的回复..."></textarea>
+                <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:4px;">
+                  <button class="btn btn-outline btn-sm" onclick="toggleReplyBox('${c.id}')">取消</button>
+                  <button class="btn btn-primary btn-sm" id="btn-send-reply-${c.id}" onclick="handleReplySubmit('${slug}', '${c.id}', '${esc(c.user_name)}')">发送</button>
+                </div>
+              </div>
+
+              <!-- 嵌套子回复 -->
+              ${repliesHtml}
+            </div>`;
+        })
+        .join('');
+    } catch (err) {
+      console.error('加载评论失败', err);
+      commentFeedEl.innerHTML = `<div style="font-size:12px; color:var(--pri-high); text-align:center;">评论加载失败</div>`;
+    }
+  }
+
+  // 提交主评论
+  window.handleCurrentCommentSubmit = async function () {
+    if (!currentUser && window.Api && window.Api.isConfigured()) {
+      alert('请登录后再发表避坑评论！');
+      showAuthModal();
+      return;
+    }
+
+    if (!commentInputEl) return;
+    const content = commentInputEl.value.trim();
+    if (!content) return;
+
+    const btn = document.getElementById('btn-post-comment');
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '发送中...';
+      }
+
+      const userName = getUserDisplayName();
+      await window.Api.postComment(currentSlug, currentUser ? currentUser.id : 'anon', userName, content);
+      commentInputEl.value = '';
+
+      // 重新加载评论列表
+      loadComments(currentSlug);
+    } catch (err) {
+      alert(err.message || '发表失败，请重试');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '发表';
+      }
+    }
+  };
+
   window.handleLikeClick = async function (slug) {
-    if (!currentUser && window.Api.isConfigured()) {
+    if (!currentUser && window.Api && window.Api.isConfigured()) {
       alert('请登录后再为该政策点赞！');
-      showModal('modal-auth');
+      showAuthModal();
       return;
     }
 
@@ -309,48 +742,46 @@
       let count = parseInt(countEl.textContent || '0', 10);
 
       if (res.action === 'liked') {
-        btn.classList.add('liked');
-        countEl.textContent = count + 1;
+        if (btn) btn.classList.add('liked');
+        if (countEl) countEl.textContent = count + 1;
       } else {
-        btn.classList.remove('liked');
-        countEl.textContent = Math.max(0, count - 1);
+        if (btn) btn.classList.remove('liked');
+        if (countEl) countEl.textContent = Math.max(0, count - 1);
       }
     } catch (err) {
       alert(err.message || '点赞失败');
     }
   };
 
-  // 评论点赞切换
   window.handleCommentLike = async function (commentId, slug) {
-    if (!currentUser && window.Api.isConfigured()) {
+    if (!currentUser && window.Api && window.Api.isConfigured()) {
       alert('请登录后再为评论点赞！');
-      showModal('modal-auth');
+      showAuthModal();
       return;
     }
 
     try {
       const btn = document.getElementById('btn-c-like-' + commentId);
       const countEl = document.getElementById('c-like-cnt-' + commentId);
-      const res = await window.Api.toggleCommentLike(commentId, currentUser.id);
+      const res = await window.Api.toggleCommentLike(commentId, currentUser ? currentUser.id : 'anon');
       let count = parseInt(countEl.textContent || '0', 10);
 
       if (res.action === 'liked') {
-        btn.classList.add('liked');
-        countEl.textContent = count + 1;
+        if (btn) btn.classList.add('liked');
+        if (countEl) countEl.textContent = count + 1;
       } else {
-        btn.classList.remove('liked');
-        countEl.textContent = Math.max(0, count - 1);
+        if (btn) btn.classList.remove('liked');
+        if (countEl) countEl.textContent = Math.max(0, count - 1);
       }
     } catch (err) {
       alert(err.message || '评论点赞失败');
     }
   };
 
-  // 显示/隐藏行内回复输入框
   window.toggleReplyBox = function (commentId, targetUserName) {
-    if (!currentUser && window.Api.isConfigured()) {
+    if (!currentUser && window.Api && window.Api.isConfigured()) {
       alert('请登录后再参与回复交流！');
-      showModal('modal-auth');
+      showAuthModal();
       return;
     }
 
@@ -358,7 +789,6 @@
     if (!box) return;
 
     const isHidden = box.style.display === 'none' || !box.style.display;
-    // 关闭页面上其他可能打开的回复框
     document.querySelectorAll('.inline-reply-box').forEach((el) => {
       el.style.display = 'none';
     });
@@ -375,11 +805,10 @@
     }
   };
 
-  // 提交子回复
   window.handleReplySubmit = async function (slug, parentId, targetUserName) {
-    if (!currentUser && window.Api.isConfigured()) {
+    if (!currentUser && window.Api && window.Api.isConfigured()) {
       alert('请登录后再回复！');
-      showModal('modal-auth');
+      showAuthModal();
       return;
     }
 
@@ -397,455 +826,133 @@
         btn.textContent = '发送中...';
       }
       const userName = getUserDisplayName();
-      await window.Api.postComment(slug, currentUser.id, userName, content, parentId, targetUserName);
+      await window.Api.postComment(slug, currentUser ? currentUser.id : 'anon', userName, content, parentId, targetUserName);
       input.value = '';
       const box = document.getElementById('reply-box-' + parentId);
       if (box) box.style.display = 'none';
 
-      // 刷新评论列表
       loadComments(slug);
     } catch (err) {
       alert(err.message || '回复失败');
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = '回复';
+        btn.textContent = '发送';
       }
     }
   };
 
-  // 提交主评论
-  window.handleCommentSubmit = async function (slug) {
-    if (!currentUser && window.Api.isConfigured()) {
-      alert('请登录后再发表评论！');
-      showModal('modal-auth');
-      return;
-    }
-
-    const input = document.getElementById('comment-input');
-    const content = input.value.trim();
-    if (!content) return;
-
-    try {
-      const btn = document.getElementById('btn-post-comment');
-      btn.disabled = true;
-      btn.textContent = '发送中...';
-
-      const userName = getUserDisplayName();
-      await window.Api.postComment(slug, currentUser ? currentUser.id : 'anon', userName, content);
-      input.value = '';
-
-      // 重新加载评论
-      loadComments(slug);
-    } catch (err) {
-      alert(err.message || '发表失败');
-    } finally {
-      const btn = document.getElementById('btn-post-comment');
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '发表评论';
-      }
-    }
-  };
-
-  async function loadLikes(slug) {
-    if (!window.Api || !window.Api.isConfigured()) return;
-    const { count, hasLiked } = await window.Api.getLikes(slug, currentUser ? currentUser.id : null);
-    const btn = document.getElementById('btn-like-' + slug);
-    const countEl = document.getElementById('like-count-' + slug);
-    if (btn && countEl) {
-      countEl.textContent = count;
-      if (hasLiked) btn.classList.add('liked');
-    }
-  }
-
-  async function loadComments(slug) {
-    const listEl = document.getElementById('comment-list-' + slug);
-    if (!listEl) return;
-
-    if (!window.Api || !window.Api.isConfigured()) {
-      listEl.innerHTML = `<div class="comment-empty">（配置 Supabase 凭据后即可开启实时互动交流）</div>`;
-      return;
-    }
-
-    const comments = await window.Api.getComments(slug, currentUser ? currentUser.id : null);
-    if (!comments.length) {
-      listEl.innerHTML = `<div class="comment-empty">暂无评论，来发表第一条经验或疑问吧～</div>`;
-      return;
-    }
-
-    listEl.innerHTML = comments
-      .map((c) => {
-        // 渲染子回复列表
-        const repliesHtml = (c.replies && c.replies.length > 0)
-          ? `<div class="comment-replies">
-              ${c.replies.map(r => `
-                <div class="reply-item">
-                  <div class="comment-meta">
-                    <div>
-                      <b>${esc(r.user_name)}</b>
-                      ${r.reply_to_name ? `<span class="reply-target">回复 <b>@${esc(r.reply_to_name)}</b></span>` : ''}
-                    </div>
-                    <span>${new Date(r.created_at).toLocaleDateString()}</span>
-                  </div>
-                  <p class="comment-content">${esc(r.content)}</p>
-                  <div class="comment-actions">
-                    <button class="btn-c-like ${r.has_liked ? 'liked' : ''}" id="btn-c-like-${r.id}" onclick="handleCommentLike('${r.id}', '${slug}')">
-                      ❤️ <span id="c-like-cnt-${r.id}">${r.like_count || 0}</span>
-                    </button>
-                    <button class="btn-c-reply" onclick="toggleReplyBox('${c.id}', '${esc(r.user_name)}')">
-                      💬 回复
-                    </button>
-                  </div>
-                </div>
-              `).join('')}
-            </div>`
-          : '';
-
-        return `
-        <div class="comment-item" id="comment-${c.id}">
-          <div class="comment-meta">
-            <b>${esc(c.user_name)}</b>
-            <span>${new Date(c.created_at).toLocaleDateString()}</span>
-          </div>
-          <p class="comment-content">${esc(c.content)}</p>
-          <div class="comment-actions">
-            <button class="btn-c-like ${c.has_liked ? 'liked' : ''}" id="btn-c-like-${c.id}" onclick="handleCommentLike('${c.id}', '${slug}')">
-              ❤️ 赞 (<span id="c-like-cnt-${c.id}">${c.like_count || 0}</span>)
-            </button>
-            <button class="btn-c-reply" onclick="toggleReplyBox('${c.id}', '${esc(c.user_name)}')">
-              💬 回复
-            </button>
-          </div>
-
-          <!-- 行内内嵌回复输入框 -->
-          <div class="inline-reply-box" id="reply-box-${c.id}" style="display:none;">
-            <textarea id="reply-input-${c.id}" rows="2" placeholder="写下你的回复..."></textarea>
-            <div class="reply-box-actions">
-              <button class="btn btn-sm btn-outline" onclick="toggleReplyBox('${c.id}')">取消</button>
-              <button class="btn btn-sm btn-primary" id="btn-send-reply-${c.id}" onclick="handleReplySubmit('${slug}', '${c.id}', '${esc(c.user_name)}')">回复</button>
-            </div>
-          </div>
-
-          <!-- 子回复楼中楼展示 -->
-          ${repliesHtml}
-        </div>`;
-      })
-      .join('');
-  }
-
-  // ---------- 板块 Chips ----------
-  function renderChips() {
-    const all = [{ id: 'all', name: '全部' }, ...CATEGORIES];
-    catsEl.innerHTML = all
-      .map(
-        (c) =>
-          `<button class="chip ${c.id === activeCat ? 'active' : ''}" data-cat="${c.id}">${esc(c.name)}</button>`
-      )
-      .join('');
-
-    catsEl.querySelectorAll('.chip').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        activeCat = btn.dataset.cat;
-        renderChips();
-        if (location.hash && location.hash !== '#/') {
-          location.hash = activeCat === 'all' ? '#/' : `#/section/${activeCat}`;
-        } else {
-          render();
-        }
-      });
-    });
-  }
-
-  // ---------- 列表渲染 ----------
-  function match(item) {
-    if (activeCat !== 'all' && item.cat !== activeCat) return false;
-    if (!query) return true;
-    const cat = catMap[item.cat] || {};
-    const hay = [item.title, item.summary, item.dept, item.object, cat.name].join(' ');
-    return hay.toLowerCase().includes(query.toLowerCase());
-  }
-
-  function makeCard(it) {
-    const c = catMap[it.cat] || { name: it.cat };
-    const typeTag = it.table ? '<span class="tag table">数据表</span>' : '';
-    const metaFields = [
-      ['对象', it.object],
-      ['时间', it.time],
-      ['部门', it.dept],
-      ['电话', it.phone],
-      ['地点', it.place],
-      ['材料', it.material],
-    ].filter((pair) => pair[1]);
-    const metaHtml = metaFields.map((pair) => `<span><b>${pair[0]}</b>${esc(pair[1])}</span>`).join('');
-    return `
-      <article class="card">
-        <div class="card-top">
-          <span class="tag">${esc(c.name)}</span>
-          ${typeTag}
-          <span class="tag ok">已核实</span>
-          <span class="tag ${priClass(it.priority)}">${esc(it.priority)}优先级</span>
-        </div>
-        <h3>${esc(it.title)}</h3>
-        <p class="summary">${esc(it.summary)}</p>
-        ${metaHtml ? `<div class="meta">${metaHtml}</div>` : ''}
-        <div class="card-foot">
-          <span class="date">${it.date ? '发布于 ' + esc(it.date) : '以官方为准'}</span>
-          <span class="foot-links">
-            <a href="#/section/${esc(it.cat)}/item/${esc(it.slug)}">详情</a>
-            <a href="${esc(it.url)}" target="_blank" rel="noopener">原文</a>
-          </span>
-        </div>
-      </article>`;
-  }
-
-  function render() {
-    const list = ITEMS.filter(match);
-    cardsEl.innerHTML = list.map(makeCard).join('');
-    emptyEl.style.display = list.length ? 'none' : 'block';
-  }
-
-  function renderLinks() {
-    linksEl.innerHTML = LINKS.map(
-      (l) =>
-        `<a class="link" href="${esc(l.url)}" target="_blank" rel="noopener"><span>${esc(l.name)}</span><span class="arrow">→</span></a>`
+  // ---------- 4. 官方渠道卡片渲染 ----------
+  function renderOfficialLinks() {
+    if (!officialLinksGrid) return;
+    officialLinksGrid.innerHTML = LINKS.map(
+      (l) => `
+      <a class="link-card" href="${esc(l.url)}" target="_blank" rel="noopener">
+        <span class="link-name">${esc(l.name)}</span>
+        <span class="link-url">${esc(l.url.replace(/^https?:\/\//, ''))} ↗</span>
+      </a>`
     ).join('');
   }
 
-  // ---------- 详情渲染 ----------
-  function renderDetail(it, catId) {
-    const c = catMap[it.cat] || { name: it.cat };
-    const typeTag = it.table ? '<span class="tag table">数据表</span>' : '';
+  // ---------- 5. Hash 路由与选中文档定位 ----------
+  function syncRoute() {
+    const raw = location.hash.replace(/^#\/?/, '');
+    const parts = raw.split('/');
 
-    const infoFields = [
-      ['适用对象', it.object],
-      ['关键时间', it.time],
-      ['负责部门', it.dept],
-      ['联系电话', it.phone],
-      ['办理地点', it.place],
-      ['所需材料', it.material],
-    ].filter((pair) => pair[1]);
-    const infoHtml = infoFields.length
-      ? `<div class="info-card"><div class="meta">${infoFields.map((pair) => `<span><b>${pair[0]}</b>${esc(pair[1])}</span>`).join('')}</div></div>`
-      : '';
+    let foundItem = null;
 
-    function renderSection(sec, idx) {
-      const id = 'sec-' + idx;
-      const inner = [];
-      if (sec.lead) inner.push(`<p class="sec-lead">${esc(sec.lead)}</p>`);
-      if (sec.body) inner.push(`<p>${esc(sec.body)}</p>`);
-      if (sec.bullet && sec.bullet.length) {
-        inner.push(`<ul class="sec-bullet">${sec.bullet.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`);
-      }
-      if (sec.table && sec.table.rows) {
-        const th = (sec.table.headers || []).map((h) => `<th>${esc(h)}</th>`).join('');
-        const trs = sec.table.rows.map((r) => `<tr>${r.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('');
-        inner.push(`<div class="table-wrap"><table>${th ? `<thead><tr>${th}</tr></thead>` : ''}<tbody>${trs}</tbody></table></div>`);
-      }
-      return `<section class="detail-section" id="${id}">
-        <h2 class="sec-title">${esc(sec.title || '分区 ' + (idx + 1))}</h2>
-        ${inner.join('')}
-      </section>`;
+    if (raw === 'news' || parts[0] === 'news') {
+      // 路由命中 #/news【今日最新消息】
+      currentCat = 'news';
+      currentSlug = 'news';
+      renderTreeSidebar();
+      renderMainContent(null);
+      loadComments('news');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
     }
 
-    let bodyHtml = '';
-    if (it.sections && it.sections.length) {
-      const anchors = it.sections
-        .map((sec, i) => `<a href="#sec-${i}">${esc(sec.title || '分区 ' + (i + 1))}</a>`)
-        .join('');
-      const secs = it.sections.map(renderSection).join('');
-      bodyHtml = `<div class="sec-nav">${anchors}</div>${secs}`;
-    } else if (it.body) {
-      bodyHtml += `
-        <div class="detail-body">
-          <h2>政策要点</h2>
-          <p>${esc(it.body)}</p>
-        </div>`;
-    }
-    if (it.table && it.table.rows) {
-      const th = (it.table.headers || []).map((h) => `<th>${esc(h)}</th>`).join('');
-      const trs = it.table.rows.map((r) => `<tr>${r.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('');
-      bodyHtml += `
-        <div class="detail-table">
-          <h2>数据一览</h2>
-          <div class="table-wrap">
-            <table>
-              ${th ? `<thead><tr>${th}</tr></thead>` : ''}
-              <tbody>${trs}</tbody>
-            </table>
-          </div>
-        </div>`;
-    }
-    if (it.steps && it.steps.length) {
-      const steps = it.steps.map((s) => `<li>${esc(s)}</li>`).join('');
-      bodyHtml += `<div class="detail-steps"><h2>办理流程</h2><ol>${steps}</ol></div>`;
-    }
-
-    const notesHtml = it.notes
-      ? `<div class="detail-notes"><h2>注意事项</h2><p>${esc(it.notes)}</p></div>`
-      : '';
-
-    const related = ITEMS.filter((x) => x.cat === it.cat && x.slug !== it.slug);
-    const relatedHtml = related.length
-      ? `<div class="related"><h2>同板块其他事项</h2><div class="cards">${related.map(makeCard).join('')}</div></div>`
-      : '';
-
-    return `
-      <div class="detail">
-        <nav class="crumb">
-          <a href="#/">首页</a><span class="sep">›</span>
-          <a href="#/section/${esc(it.cat)}">${esc(c.name)}</a><span class="sep">›</span>
-          <span class="cur">${esc(it.title)}</span>
-        </nav>
-        <a class="back" href="#/section/${esc(it.cat)}">← 返回上一板块</a>
-
-        <div class="detail-head">
-          <div class="card-top">
-            <span class="tag">${esc(c.name)}</span>
-            ${typeTag}
-            <span class="tag ok">已核实</span>
-            <span class="tag ${priClass(it.priority)}">${esc(it.priority)}优先级</span>
-          </div>
-          <h1>${esc(it.title)}</h1>
-          <p class="summary">${esc(it.summary)}</p>
-        </div>
-
-        ${infoHtml}
-        ${bodyHtml}
-        ${notesHtml}
-
-        <!-- 互动区：点赞 & 纠错 -->
-        <div class="detail-actions">
-          <div class="action-left">
-            <button class="btn-like" id="btn-like-${esc(it.slug)}" onclick="handleLikeClick('${esc(it.slug)}')">
-              ❤️ <span id="like-count-${esc(it.slug)}">0</span> 点赞
-            </button>
-          </div>
-          <button class="btn-report" onclick="openFeedbackModal('${esc(it.slug)}', '${esc(it.title)}')">
-            🚩 信息失效 / 报错纠错
-          </button>
-        </div>
-
-        <div class="source">
-          <a href="${esc(it.url)}" target="_blank" rel="noopener">查看官方原文 →</a>
-          <span>${it.date ? '发布于 ' + esc(it.date) : '以官方最新通知为准'}</span>
-        </div>
-
-        <!-- 评论讨论区 -->
-        <div class="comments-section">
-          <h2>💬 交流与提问</h2>
-          <div class="comment-form">
-            <textarea id="comment-input" placeholder="有疑问或经验分享？发表你的评论..."></textarea>
-            <div class="comment-form-foot">
-              <span style="font-size:12px;color:var(--muted);">支持理性文明交流</span>
-              <button class="btn btn-primary btn-sm" id="btn-post-comment" onclick="handleCommentSubmit('${esc(it.slug)}')">发表评论</button>
-            </div>
-          </div>
-          <div class="comment-list" id="comment-list-${esc(it.slug)}"></div>
-        </div>
-
-        ${relatedHtml}
-      </div>`;
-  }
-
-  function renderNotFound(catId) {
-    const back = catMap[catId] ? `#/section/${esc(catId)}` : '#/';
-    return `
-      <div class="detail">
-        <a class="back" href="${back}">← 返回</a>
-        <div class="empty">未找到该事项，可能已下线或链接有误。</div>
-      </div>`;
-  }
-
-  // ---------- 路由驱动 ----------
-  function parseRoute() {
-    const hash = location.hash.replace(/^#\/?/, '');
-    if (!hash) return { view: 'list', catId: 'all' };
-
-    const parts = hash.split('/').filter(Boolean);
     if (parts[0] === 'section' && parts[1]) {
+      currentCat = parts[1];
+      expandedCats.add(currentCat);
       if (parts[2] === 'item' && parts[3]) {
-        return { view: 'detail', catId: parts[1], slug: parts[3] };
-      }
-      return { view: 'list', catId: parts[1] };
-    }
-    return { view: 'list', catId: 'all' };
-  }
-
-  function route() {
-    const r = parseRoute();
-    if (r.view === 'detail') {
-      showDetail(r.slug, r.catId);
-    } else {
-      showList(r.catId);
-    }
-  }
-
-  function showList(catId) {
-    activeCat = catMap[catId] ? catId : 'all';
-    renderChips();
-    detailView.style.display = 'none';
-    listView.style.display = 'block';
-    heroEl.style.display = 'block';
-    render();
-    window.scrollTo(0, 0);
-  }
-
-  function showDetail(slug, catId) {
-    const item = ITEMS.find((i) => i.slug === slug);
-    heroEl.style.display = 'none';
-    listView.style.display = 'none';
-    detailView.style.display = 'block';
-
-    if (!item) {
-      detailView.innerHTML = renderNotFound(catId);
-    } else {
-      detailView.innerHTML = renderDetail(item, catId);
-      // 加载点赞与评论数据
-      loadLikes(slug);
-      loadComments(slug);
-      // 触发无感浏览埋点
-      if (window.Api && window.Api.recordView) {
-        window.Api.recordView(slug, item.cat, currentUser ? currentUser.id : null);
-      }
-    }
-    window.scrollTo(0, 0);
-  }
-
-  // ---------- 搜索 ----------
-  let searchTimer = null;
-  function bindSearch() {
-    const onInput = (e) => {
-      query = e.target.value.trim();
-      searchInput.value = e.target.value;
-      heroInput.value = e.target.value;
-      if (detailView.style.display !== 'none') {
-        location.hash = '#/';
+        currentSlug = parts[3];
+        foundItem = ITEMS.find((i) => i.slug === currentSlug);
       } else {
-        render();
+        // 如果只选了分类，默认打开该分类下第一个事项
+        foundItem = ITEMS.find((i) => i.cat === currentCat);
+        if (foundItem) currentSlug = foundItem.slug;
       }
+    } else if (raw) {
+      // 尝试直接匹配 slug
+      foundItem = ITEMS.find((i) => i.slug === raw);
+      if (foundItem) {
+        currentSlug = foundItem.slug;
+        currentCat = foundItem.cat;
+        expandedCats.add(currentCat);
+      }
+    }
 
-      // 防抖上报搜索热词与未命中词
-      clearTimeout(searchTimer);
-      if (query.length >= 2) {
-        searchTimer = setTimeout(() => {
-          if (window.Api && window.Api.recordSearch) {
-            const hitCount = getFiltered().length;
-            window.Api.recordSearch(query, hitCount > 0);
-          }
-        }, 1200);
+    if (!foundItem) {
+      // 兜底打开第一个条目
+      foundItem = ITEMS[0];
+      if (foundItem) {
+        currentSlug = foundItem.slug;
+        currentCat = foundItem.cat;
+        expandedCats.add(currentCat);
       }
-    };
-    searchInput.addEventListener('input', onInput);
-    heroInput.addEventListener('input', onInput);
+    }
+
+    renderTreeSidebar();
+    renderMainContent(foundItem);
+    loadComments(currentSlug);
+
+    // 滚动到正文顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  // ---------- 启动 ----------
-  document.getElementById('count').textContent = ITEMS.length;
+  // ---------- 6. 全局搜索与快捷键绑定 ----------
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      query = e.target.value.trim();
+      renderTreeSidebar();
+
+      // 如果有搜索结果，自动展开所有分类并选中第一个匹配项
+      if (query) {
+        const matched = ITEMS.filter((item) => {
+          const hay = [item.title, item.summary, item.dept, item.object].join(' ').toLowerCase();
+          return hay.includes(query.toLowerCase());
+        });
+        if (matched.length > 0) {
+          currentSlug = matched[0].slug;
+          currentCat = matched[0].cat;
+          expandedCats.add(currentCat);
+          renderMainContent(matched[0]);
+          loadComments(currentSlug);
+        } else {
+          renderMainContent(null);
+        }
+      } else {
+        syncRoute();
+      }
+    });
+  }
+
+  // 快捷键 Ctrl + K 唤起搜索框
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
+      }
+    }
+  });
+
+  // ---------- 7. 初始化启动 ----------
+  window.addEventListener('hashchange', syncRoute);
+
+  renderOfficialLinks();
   initAuth();
-  renderChips();
-  renderLinks();
-  window.addEventListener('hashchange', route);
-  route();
-  bindSearch();
+  syncRoute();
 })();

@@ -176,8 +176,8 @@
       <div class="dashboard-panel">
         <h3>🆕 官网/教务处/学生处 新内容自动抓取（每 6 小时）</h3>
         <p style="font-size:12px; color:#64748b; margin:-8px 0 14px;">
-          下方为 GitHub Actions 定时抓取的官方最新发布。请人工审核：选择归属板块后点击「发布」才会正式进入主站；
-          无关内容可「忽略」。发布后请同步到 data.js 主干数据（见主站数据文件）。
+          下方为 GitHub Actions 定时抓取的官方最新发布。请人工审核：选择归属板块（可选择发布到【📢 今日最新消息】或归档至各场景板块）后点击「发布」即可在前端实时展示；
+          无关内容可点击「忽略」。
         </p>
         <table class="admin-table">
           <thead>
@@ -185,13 +185,14 @@
               <th>来源</th>
               <th>标题</th>
               <th>发布日期</th>
+              <th>所属板块</th>
               <th>状态</th>
               <th>抓取时间</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody id="tbl-feeds">
-            <tr><td colspan="6" style="text-align:center;">数据加载中...</td></tr>
+            <tr><td colspan="7" style="text-align:center;">数据加载中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -374,16 +375,22 @@
         const feeds = await window.Api.getFeeds(60);
         const feedsBody = document.getElementById('tbl-feeds');
         if (!feeds.length) {
-          feedsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">暂无抓取记录（GitHub Actions 尚未运行或尚未创建 feeds 表）</td></tr>';
+          feedsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">暂无抓取记录（GitHub Actions 尚未运行或尚未创建 feeds 表）</td></tr>';
         } else {
-          feedsBody.innerHTML = feeds.map(f => `
+          const categoryOptions = (window.CATEGORIES || []).map(c => `<option value="${c.id}">📂 ${c.name}</option>`).join('');
+
+          feedsBody.innerHTML = feeds.map(f => {
+            const currentCatName = f.cat === 'news' ? '📢 今日最新消息' : ((window.CATEGORIES || []).find(c => c.id === f.cat)?.name || f.cat || '-');
+            return `
             <tr>
               <td><span class="tag">${f.source_name || f.source}</span></td>
               <td>
                 <b>${f.title}</b><br>
-                <a href="${f.link}" target="_blank" rel="noopener" style="font-size:11px;color:#64748b;">查看原文 →</a>
+                ${f.summary ? `<div style="font-size:12px;color:#64748b;margin-top:2px;max-width:320px;">${f.summary}</div>` : ''}
+                <a href="${f.source_url || f.link || '#'}" target="_blank" rel="noopener" style="font-size:11px;color:#fa541c;">查看官方原文 →</a>
               </td>
               <td>${f.pub_date || '-'}</td>
+              <td><span class="tag" style="background:#fff1eb;color:#fa541c;font-weight:600;">${currentCatName}</span></td>
               <td>
                 ${f.status === 'published'
                   ? '<span class="badge-status badge-active">已发布</span>'
@@ -394,20 +401,24 @@
               <td>${new Date(f.created_at).toLocaleString()}</td>
               <td style="white-space:nowrap;">
                 ${f.status === 'pending' ? `
-                  <select id="feed-cat-${f.id}" style="font-size:12px;padding:3px 4px;margin-right:4px;">
-                    <option value="">选择板块</option>
-                    ${(window.CATEGORIES || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-                    <option value="news">最新通知</option>
+                  <select id="feed-cat-${f.id}" style="font-size:12px;padding:4px 6px;margin-right:6px;border:1px solid #d1d5db;border-radius:4px;outline:none;">
+                    <option value="news" selected>📢 今日最新消息 (推荐)</option>
+                    <optgroup label="—— 归档到各场景板块 ——">
+                      ${categoryOptions}
+                    </optgroup>
                   </select>
                   <button class="btn-action btn-success" onclick="publishFeed('${f.id}')">发布</button>
                   <button class="btn-action btn-danger" onclick="ignoreFeed('${f.id}')">忽略</button>`
-                  : ''}
+                  : `
+                  <button class="btn-action btn-danger" onclick="ignoreFeed('${f.id}')">撤回/下架</button>
+                `}
               </td>
             </tr>
-          `).join('');
+          `;
+          }).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-feeds').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">加载失败：${err.message || '请先在 Supabase 执行最新 SQL 创建 feeds 表'}</td></tr>`;
+        document.getElementById('tbl-feeds').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${err.message || '请先在 Supabase 执行最新 SQL 创建 feeds 表'}</td></tr>`;
       }
 
       // 7. 加载纠错反馈
