@@ -802,3 +802,11 @@ const LINKS = [
   { name: '档案馆', url: 'https://zhdas.sdtbu.edu.cn' },
   { name: '智慧山商 / VPN', url: 'https://www.sdtbu.edu.cn/vpn.jsp' },
 ];
+
+// 显式挂载到 window 全局对象，确保所有页面及作用域无阻碍访问
+if (typeof window !== 'undefined') {
+  window.SITE = SITE;
+  window.CATEGORIES = CATEGORIES;
+  window.ITEMS = ITEMS;
+  window.LINKS = LINKS;
+}

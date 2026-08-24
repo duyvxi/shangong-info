@@ -377,10 +377,25 @@
         if (!feeds.length) {
           feedsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">暂无抓取记录（GitHub Actions 尚未运行或尚未创建 feeds 表）</td></tr>';
         } else {
-          const categoryOptions = (window.CATEGORIES || []).map(c => `<option value="${c.id}">📂 ${c.name}</option>`).join('');
+          // 兜底获取分类列表：优先取 window.CATEGORIES，如未加载则使用预置的 9 大标准场景板块
+          const catList = (typeof window.CATEGORIES !== 'undefined' && window.CATEGORIES.length > 0)
+            ? window.CATEGORIES
+            : [
+                { id: 'report', name: '入学报到' },
+                { id: 'roll', name: '学籍管理' },
+                { id: 'course', name: '选课教学' },
+                { id: 'aid', name: '奖助贷勤' },
+                { id: 'exam', name: '考试相关' },
+                { id: 'dorm', name: '宿舍生活' },
+                { id: 'campus', name: '校园服务' },
+                { id: 'league', name: '团学与创新创业' },
+                { id: 'grad', name: '毕业就业' }
+              ];
+
+          const categoryOptions = catList.map(c => `<option value="${c.id}">📂 ${c.name}</option>`).join('');
 
           feedsBody.innerHTML = feeds.map(f => {
-            const currentCatName = f.cat === 'news' ? '📢 今日最新消息' : ((window.CATEGORIES || []).find(c => c.id === f.cat)?.name || f.cat || '-');
+            const currentCatName = f.cat === 'news' ? '📢 今日最新消息' : (catList.find(c => c.id === f.cat)?.name || f.cat || '-');
             return `
             <tr>
               <td><span class="tag">${f.source_name || f.source}</span></td>
@@ -401,7 +416,7 @@
               <td>${new Date(f.created_at).toLocaleString()}</td>
               <td style="white-space:nowrap;">
                 ${f.status === 'pending' ? `
-                  <select id="feed-cat-${f.id}" style="font-size:12px;padding:4px 6px;margin-right:6px;border:1px solid #d1d5db;border-radius:4px;outline:none;">
+                  <select id="feed-cat-${f.id}" style="font-size:12px;padding:4px 6px;margin-right:6px;border:1px solid #d1d5db;border-radius:4px;outline:none;background:#fff;">
                     <option value="news" selected>📢 今日最新消息 (推荐)</option>
                     <optgroup label="—— 归档到各场景板块 ——">
                       ${categoryOptions}
