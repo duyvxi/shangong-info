@@ -607,7 +607,7 @@ const Api = {
     try {
       let query = supabaseClient
         .from('feeds')
-        .select('id, source, source_url, title, summary, pub_date, cat, status, published_at, created_at')
+        .select('id, source, source_name, title, link, pub_date, cat, status, published_at, created_at')
         .eq('status', 'published')
         .order('published_at', { ascending: false, nullsFirst: false })
         .limit(limit);
@@ -642,6 +642,8 @@ const Api = {
    * @param {object} f feeds 记录
    */
   feedToItem(f) {
+    // feeds 表实际字段：source / source_name / title / link / pub_date / cat / status / published_at
+    const fallbackSummary = f.title;
     return {
       id: 'feed-' + f.id,
       slug: 'feed-' + f.id,
@@ -654,10 +656,10 @@ const Api = {
       place: '—',
       material: '—',
       phone: '',
-      url: f.source_url || f.link || '#',
-      summary: f.summary || f.title,
+      url: f.link || '#',
+      summary: fallbackSummary,
       date: (f.pub_date || (f.published_at ? f.published_at.slice(0, 10) : '')) || '',
-      body: f.summary || f.title,
+      body: fallbackSummary,
       steps: [],
       notes: '该内容由后台审核自动发布，详情以官方通知原文为准。',
       isDynamic: true,
