@@ -113,6 +113,7 @@
     const tabLogin = document.getElementById('tab-login');
     const tabReg = document.getElementById('tab-register');
     const groupName = document.getElementById('group-username');
+    const groupAgree = document.getElementById('group-agree');
     const descEl = document.getElementById('auth-desc');
     const btn = document.getElementById('btn-do-auth');
     const msgEl = document.getElementById('auth-msg');
@@ -126,12 +127,14 @@
       if (tabLogin) tabLogin.classList.add('active');
       if (tabReg) tabReg.classList.remove('active');
       if (groupName) groupName.style.display = 'none';
+      if (groupAgree) groupAgree.style.display = 'none';
       if (descEl) descEl.textContent = '输入你的账号（手机号或学号）和密码完成登录。';
       if (btn) btn.textContent = '立即登录';
     } else {
       if (tabReg) tabReg.classList.add('active');
       if (tabLogin) tabLogin.classList.remove('active');
       if (groupName) groupName.style.display = 'block';
+      if (groupAgree) groupAgree.style.display = 'block';
       if (descEl) descEl.textContent = '自主设置账号、昵称与密码，秒级完成注册，无需等待验证码。';
       if (btn) btn.textContent = '立即注册并登录';
     }
@@ -158,6 +161,14 @@
       msgEl.textContent = '密码长度至少需要 6 个字符';
       msgEl.className = 'form-msg error';
       return;
+    }
+    if (authMode === 'register') {
+      const agreeEl = document.getElementById('auth-agree');
+      if (!agreeEl || !agreeEl.checked) {
+        msgEl.textContent = '请先阅读并勾选同意《用户协议》与《隐私政策》';
+        msgEl.className = 'form-msg error';
+        return;
+      }
     }
 
     try {
