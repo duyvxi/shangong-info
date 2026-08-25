@@ -29,7 +29,53 @@ const Api = {
   },
 
   // ==========================================
-  // 用户身份管理 (Auth - 账号密码模式)
+  // 匿名身份 (v2 匿名模式 - 不收集个人信息)
+  // 每个浏览器生成一个本地匿名 UUID，用于点赞去重与评论归属标识，
+  // 不关联任何真实身份信息，仅存于用户浏览器 localStorage。
+  // ==========================================
+
+  /**
+   * 获取（或首次生成）本机匿名身份 ID
+   * @returns {string} 匿名 UUID
+   */
+  getAnonymousId() {
+    try {
+      let id = localStorage.getItem('sdtbu_anon_id');
+      if (!id) {
+        id = 'anon_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem('sdtbu_anon_id', id);
+      }
+      return id;
+    } catch (e) {
+      return 'anon_' + Date.now();
+    }
+  },
+
+  /**
+   * 读取本机昵称（未设置则返回默认「匿名同学」）
+   */
+  getNickname() {
+    try {
+      return localStorage.getItem('sdtbu_nickname') || '匿名同学';
+    } catch (e) {
+      return '匿名同学';
+    }
+  },
+
+  /**
+   * 设置本机昵称（仅存本地浏览器，不上传服务端）
+   */
+  setNickname(name) {
+    const clean = (name || '').trim().slice(0, 20);
+    try {
+      if (clean) localStorage.setItem('sdtbu_nickname', clean);
+      else localStorage.removeItem('sdtbu_nickname');
+    } catch (e) {}
+    return clean || '匿名同学';
+  },
+
+  // ==========================================
+  // 用户身份管理 (Auth - 保留兼容旧代码，匿名模式不再使用)
   // ==========================================
 
   /**
@@ -136,11 +182,10 @@ const Api = {
   // ==========================================
 
   /**
-   * 获取指定事项的点赞总数和当前用户是否已点赞
+   * 获取指定事项的点赞总数和当前浏览器是否已点赞
    * @param {string} slug - 事项唯一标识
-   * @param {string|null} userId - 当前用户ID
    */
-  async getLikes(slug, userId = null) {
+  async getLikes(slug) {
     if (!this.isConfigured() || !supabaseClient) {
       return { count: 0, hasLiked: false };
     }
@@ -155,29 +200,26 @@ const Api = {
     }
 
     let hasLiked = false;
-    if (userId) {
-      const { data } = await supabaseClient
-        .from('item_likes')
-        .select('id')
-        .eq('item_slug', slug)
-        .eq('user_id', userId)
-        .maybeSingle();
-      hasLiked = !!data;
-    }
+    const userId = this.getAnonymousId();
+    const { data } = await supabaseClient
+      .from('item_likes')
+      .select('id')
+      .eq('item_slug', slug)
+      .eq('user_id', userId)
+      .maybeSingle();
+    hasLiked = !!data;
 
     return { count: count || 0, hasLiked };
   },
 
   /**
-   * 切换点赞状态（未点赞则点赞，已点赞则取消）
+   * 切换点赞状态（未点赞则点赞，已点赞则取消）——匿名模式按浏览器身份去重
    */
-  async toggleLike(slug, userId) {
+  async toggleLike(slug) {
     if (!this.isConfigured() || !supabaseClient) {
       throw new Error('请先配置 Supabase 后端凭证');
     }
-    if (!userId) {
-      throw new Error('请先登录后再点赞');
-    }
+    const userId = this.getAnonymousId();
 
     const { data: existing } = await supabaseClient
       .from('item_likes')
@@ -207,7 +249,7 @@ const Api = {
   // ==========================================
 
   /**
-   * 获取指定事项的评论列表（含点赞数、点赞状态、子回复）
+   * 获取指定事项的评论列表（含点赞数、点赞状态、子回复）——匿名模式
    */
   async getComments(slug, currentUserId = null) {
     if (!this.isConfigured() || !supabaseClient) return [];
@@ -228,6 +270,7 @@ const Api = {
       if (comments.length === 0) return [];
 
       const commentIds = comments.map((c) => c.id);
+      const anonId = this.getAnonymousId();
 
       // 2. 批量拉取所有评论的点赞记录
       const { data: likesData } = await supabaseClient
@@ -235,14 +278,14 @@ const Api = {
         .select('comment_id, user_id')
         .in('comment_id', commentIds);
 
-      // 3. 统计每条评论的点赞数以及当前用户是否已赞
+      // 3. 统计每条评论的点赞数以及当前浏览器是否已赞
       const likesCountMap = {};
       const userLikedSet = new Set();
 
       if (likesData && likesData.length > 0) {
         likesData.forEach((item) => {
           likesCountMap[item.comment_id] = (likesCountMap[item.comment_id] || 0) + 1;
-          if (currentUserId && item.user_id === currentUserId) {
+          if (item.user_id === anonId) {
             userLikedSet.add(item.comment_id);
           }
         });
@@ -285,20 +328,16 @@ const Api = {
   },
 
   /**
-   * 发表评论或回复
+   * 发表评论或回复（匿名模式：昵称+浏览器匿名ID，无需登录）
    * @param {string} slug 事项 slug
-   * @param {string} userId 用户 UUID
    * @param {string} userName 昵称
    * @param {string} content 内容
    * @param {string|null} parentId 父评论 ID（回复时传入）
    * @param {string|null} replyToName 被回复人昵称（回复时传入）
    */
-  async postComment(slug, userId, userName, content, parentId = null, replyToName = null) {
+  async postComment(slug, userName, content, parentId = null, replyToName = null) {
     if (!this.isConfigured() || !supabaseClient) {
       throw new Error('请先配置 Supabase 后端凭证');
-    }
-    if (!userId || userId === 'anon' || userId === 'anonymous') {
-      throw new Error('请登录后再发表评论');
     }
     if (!content || !content.trim()) {
       throw new Error('评论内容不能为空');
@@ -306,8 +345,8 @@ const Api = {
 
     const payload = {
       item_slug: slug,
-      user_id: userId,
-      user_name: userName || '山商学子',
+      user_id: this.getAnonymousId(),
+      user_name: (userName || '匿名同学').trim().slice(0, 20),
       content: content.trim(),
       status: 'approved',
     };
@@ -322,15 +361,13 @@ const Api = {
   },
 
   /**
-   * 切换评论点赞状态（点赞 / 取消点赞）
+   * 切换评论点赞状态（点赞 / 取消点赞）——匿名模式按浏览器身份去重
    */
-  async toggleCommentLike(commentId, userId) {
+  async toggleCommentLike(commentId) {
     if (!this.isConfigured() || !supabaseClient) {
       throw new Error('请先配置 Supabase 后端凭证');
     }
-    if (!userId || userId === 'anon' || userId === 'anonymous') {
-      throw new Error('请登录后再为评论点赞');
-    }
+    const userId = this.getAnonymousId();
 
     // 检查是否已点赞
     const { data: existing } = await supabaseClient
@@ -361,7 +398,7 @@ const Api = {
   // ==========================================
 
   /**
-   * 提交信息纠错与失效上报
+   * 提交信息纠错与失效上报（匿名模式）
    */
   async submitFeedback({ slug, issueType, description, contact, userId = null }) {
     if (!this.isConfigured() || !supabaseClient) {
@@ -376,7 +413,7 @@ const Api = {
       issue_type: issueType || 'outdated',
       description: description.trim(),
       contact: contact ? contact.trim() : null,
-      user_id: userId,
+      user_id: userId || this.getAnonymousId(),
       status: 'todo',
     });
 
@@ -389,14 +426,11 @@ const Api = {
   // ==========================================
 
   /**
-   * 提交新攻略/政策解读投稿
+   * 提交新攻略/政策解读投稿（匿名模式：昵称+浏览器匿名ID）
    */
   async submitArticle({ cat, title, summary, content, sourceUrl, userId, authorName }) {
     if (!this.isConfigured() || !supabaseClient) {
       throw new Error('请先配置 Supabase 后端凭证');
-    }
-    if (!userId) {
-      throw new Error('请先登录后再投稿');
     }
     if (!title || !content) {
       throw new Error('标题和正文为必填项');
@@ -408,8 +442,8 @@ const Api = {
       summary: summary ? summary.trim() : null,
       content: content.trim(),
       source_url: sourceUrl ? sourceUrl.trim() : null,
-      user_id: userId,
-      author_name: authorName || '热心同学',
+      user_id: userId || this.getAnonymousId(),
+      author_name: authorName || this.getNickname(),
       status: 'pending',
     });
 

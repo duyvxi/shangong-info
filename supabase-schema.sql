@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS public.item_likes (
 );
 CREATE INDEX IF NOT EXISTS idx_item_likes_slug ON public.item_likes(item_slug);
 
+-- 匿名化兼容（v2）：允许 user_id 为 NULL 或本地匿名 UUID，解除对 auth.users 的强依赖
+ALTER TABLE public.item_likes DROP CONSTRAINT IF EXISTS item_likes_user_id_fkey;
+ALTER TABLE public.item_likes ALTER COLUMN user_id DROP NOT NULL;
+
 -- 3. 评论表 (comments - 兼容平铺与楼中楼回复)
 CREATE TABLE IF NOT EXISTS public.comments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -84,6 +88,10 @@ CREATE TABLE IF NOT EXISTS public.comments (
 ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES public.comments(id) ON DELETE CASCADE;
 ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS reply_to_name TEXT;
 
+-- 匿名化兼容（v2）：允许 user_id 为 NULL 或本地匿名 UUID，解除对 auth.users 的强依赖
+ALTER TABLE public.comments DROP CONSTRAINT IF EXISTS comments_user_id_fkey;
+ALTER TABLE public.comments ALTER COLUMN user_id DROP NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_comments_slug_status ON public.comments(item_slug, status);
 CREATE INDEX IF NOT EXISTS idx_comments_parent ON public.comments(parent_id);
 
@@ -97,6 +105,10 @@ CREATE TABLE IF NOT EXISTS public.comment_likes (
 );
 CREATE INDEX IF NOT EXISTS idx_comment_likes_comment ON public.comment_likes(comment_id);
 CREATE INDEX IF NOT EXISTS idx_comment_likes_user ON public.comment_likes(user_id);
+
+-- 匿名化兼容（v2）：允许 user_id 为 NULL 或本地匿名 UUID，解除对 auth.users 的强依赖
+ALTER TABLE public.comment_likes DROP CONSTRAINT IF EXISTS comment_likes_user_id_fkey;
+ALTER TABLE public.comment_likes ALTER COLUMN user_id DROP NOT NULL;
 
 -- 5. 纠错反馈表 (feedbacks)
 CREATE TABLE IF NOT EXISTS public.feedbacks (
@@ -259,27 +271,30 @@ DROP POLICY IF EXISTS "Public item_likes can be viewed by everyone" ON public.it
 CREATE POLICY "Public item_likes can be viewed by everyone" ON public.item_likes FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Authenticated users can insert likes" ON public.item_likes;
-CREATE POLICY "Authenticated users can insert likes" ON public.item_likes FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Anyone can insert likes" ON public.item_likes;
+CREATE POLICY "Anyone can insert likes" ON public.item_likes FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Users can delete their own likes" ON public.item_likes;
-CREATE POLICY "Users can delete their own likes" ON public.item_likes FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete their own likes" ON public.item_likes FOR DELETE USING (true);
 
--- comments 策略
+-- comments 策略（v2 匿名化：任何人可查看过审评论、可匿名发表）
 DROP POLICY IF EXISTS "Approved comments can be viewed by everyone" ON public.comments;
-CREATE POLICY "Approved comments can be viewed by everyone" ON public.comments FOR SELECT USING (status = 'approved' OR auth.uid() = user_id);
+CREATE POLICY "Approved comments can be viewed by everyone" ON public.comments FOR SELECT USING (status = 'approved' OR user_id = auth.uid() OR user_id IS NOT NULL);
 
 DROP POLICY IF EXISTS "Authenticated users can insert comments" ON public.comments;
-CREATE POLICY "Authenticated users can insert comments" ON public.comments FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Anyone can insert comments" ON public.comments;
+CREATE POLICY "Anyone can insert comments" ON public.comments FOR INSERT WITH CHECK (true);
 
--- comment_likes 策略
+-- comment_likes 策略（v2 匿名化：任何人可查看、可点赞/取消赞）
 DROP POLICY IF EXISTS "Comment likes viewable by everyone" ON public.comment_likes;
 CREATE POLICY "Comment likes viewable by everyone" ON public.comment_likes FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Authenticated users can insert comment likes" ON public.comment_likes;
-CREATE POLICY "Authenticated users can insert comment likes" ON public.comment_likes FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Anyone can insert comment likes" ON public.comment_likes;
+CREATE POLICY "Anyone can insert comment likes" ON public.comment_likes FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Users can delete their own comment likes" ON public.comment_likes;
-CREATE POLICY "Users can delete their own comment likes" ON public.comment_likes FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete their own comment likes" ON public.comment_likes FOR DELETE USING (true);
 
 -- feedbacks 策略
 DROP POLICY IF EXISTS "Anyone can submit feedbacks" ON public.feedbacks;
@@ -292,9 +307,10 @@ CREATE POLICY "Feedbacks viewable by creator or admin" ON public.feedbacks FOR S
 DROP POLICY IF EXISTS "Feedbacks can be updated by admin" ON public.feedbacks;
 CREATE POLICY "Feedbacks can be updated by admin" ON public.feedbacks FOR UPDATE USING (true);
 
--- submissions 策略
+-- submissions 策略（v2 匿名化：任何人可投稿，投稿人身份以昵称+本地匿名ID标识）
 DROP POLICY IF EXISTS "Authenticated users can submit articles" ON public.submissions;
-CREATE POLICY "Authenticated users can submit articles" ON public.submissions FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Anyone can submit articles" ON public.submissions;
+CREATE POLICY "Anyone can submit articles" ON public.submissions FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Published submissions can be viewed by everyone" ON public.submissions;
 DROP POLICY IF EXISTS "Submissions viewable by admin" ON public.submissions;

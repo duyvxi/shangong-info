@@ -4,7 +4,6 @@
   let currentSlug = 'xinsheng-baodao'; // 默认当前选中第一篇
   let currentCat = 'report';
   let query = '';
-  let currentUser = null;
   let expandedCats = new Set(['report']); // 默认展开第一个分类
   let dynamicItems = []; // 后台审核发布到常规分类的动态内容（异步拉取后合并渲染）
 
@@ -65,128 +64,62 @@
     showModal('modal-feedback');
   };
 
-  // ---------- Auth 状态维护与登录注册 ----------
-  let authMode = 'login'; // 'login' | 'register'
+  // ---------- 匿名昵称模式（v2 · 不收集个人信息） ----------
+  // 无注册、无登录；昵称仅存本机 localStorage，浏览器匿名 ID 用于点赞去重。
 
-  async function initAuth() {
-    if (window.Api && window.Api.isConfigured()) {
-      currentUser = await window.Api.getCurrentUser();
-      renderUserArea();
-    }
+  function initAuth() {
+    renderUserArea();
   }
 
   function getUserDisplayName() {
-    if (!currentUser) return '山商学子';
-    if (currentUser.user_metadata && currentUser.user_metadata.display_name) {
-      return currentUser.user_metadata.display_name;
+    if (window.Api) return window.Api.getNickname();
+    try {
+      return localStorage.getItem('sdtbu_nickname') || '匿名同学';
+    } catch (e) {
+      return '匿名同学';
     }
-    if (currentUser.user_metadata && currentUser.user_metadata.account_raw) {
-      return currentUser.user_metadata.account_raw;
-    }
-    if (currentUser.email) {
-      return currentUser.email.split('@')[0];
-    }
-    return '已登录学子';
   }
 
   function renderUserArea() {
     if (!userArea) return;
-    if (currentUser) {
-      const name = getUserDisplayName();
-      userArea.innerHTML = `
-        <div class="user-badge">
-          <span>👤 ${esc(name)}</span>
-          <button class="btn btn-outline btn-sm" onclick="handleLogout()">退出</button>
-        </div>`;
-    } else {
-      userArea.innerHTML = `<button class="btn btn-primary" onclick="showAuthModal()">登录 / 注册</button>`;
-    }
+    const name = getUserDisplayName();
+    userArea.innerHTML = `
+      <div class="user-badge">
+        <span>👤 ${esc(name)}</span>
+        <button class="btn btn-outline btn-sm" onclick="showAuthModal()">改昵称</button>
+      </div>`;
   }
 
   window.showAuthModal = function () {
-    switchAuthTab('login');
-    showModal('modal-auth');
-  };
-
-  window.switchAuthTab = function (mode) {
-    authMode = mode;
-    const tabLogin = document.getElementById('tab-login');
-    const tabReg = document.getElementById('tab-register');
-    const groupName = document.getElementById('group-username');
-    const groupAgree = document.getElementById('group-agree');
-    const descEl = document.getElementById('auth-desc');
-    const btn = document.getElementById('btn-do-auth');
+    const input = document.getElementById('auth-nickname');
+    if (input) input.value = getUserDisplayName() === '匿名同学' ? '' : getUserDisplayName();
     const msgEl = document.getElementById('auth-msg');
-
     if (msgEl) {
       msgEl.textContent = '';
       msgEl.className = 'form-msg';
     }
-
-    if (mode === 'login') {
-      if (tabLogin) tabLogin.classList.add('active');
-      if (tabReg) tabReg.classList.remove('active');
-      if (groupName) groupName.style.display = 'none';
-      if (groupAgree) groupAgree.style.display = 'none';
-      if (descEl) descEl.textContent = '输入你的账号（手机号或学号）和密码完成登录。';
-      if (btn) btn.textContent = '立即登录';
-    } else {
-      if (tabReg) tabReg.classList.add('active');
-      if (tabLogin) tabLogin.classList.remove('active');
-      if (groupName) groupName.style.display = 'block';
-      if (groupAgree) groupAgree.style.display = 'block';
-      if (descEl) descEl.textContent = '自主设置账号、昵称与密码，秒级完成注册，无需等待验证码。';
-      if (btn) btn.textContent = '立即注册并登录';
-    }
+    showModal('modal-auth');
   };
 
+  window.switchAuthTab = function () {};
+
   window.handleAuthSubmit = async function () {
-    const account = document.getElementById('auth-account').value.trim();
-    const password = document.getElementById('auth-password').value.trim();
     const nickname = document.getElementById('auth-nickname').value.trim();
     const msgEl = document.getElementById('auth-msg');
     const btn = document.getElementById('btn-do-auth');
+    const agreeEl = document.getElementById('auth-agree');
 
-    if (!account) {
-      msgEl.textContent = '请输入手机号或账号';
+    if (!agreeEl || !agreeEl.checked) {
+      msgEl.textContent = '请先阅读并勾选同意《用户协议》与《隐私政策》';
       msgEl.className = 'form-msg error';
       return;
-    }
-    if (!password) {
-      msgEl.textContent = '请输入登录密码';
-      msgEl.className = 'form-msg error';
-      return;
-    }
-    if (authMode === 'register' && password.length < 6) {
-      msgEl.textContent = '密码长度至少需要 6 个字符';
-      msgEl.className = 'form-msg error';
-      return;
-    }
-    if (authMode === 'register') {
-      const agreeEl = document.getElementById('auth-agree');
-      if (!agreeEl || !agreeEl.checked) {
-        msgEl.textContent = '请先阅读并勾选同意《用户协议》与《隐私政策》';
-        msgEl.className = 'form-msg error';
-        return;
-      }
     }
 
     try {
       btn.disabled = true;
-      btn.textContent = authMode === 'login' ? '正在登录...' : '正在创建账号...';
-      msgEl.textContent = '';
-
-      let user = null;
-      if (authMode === 'login') {
-        user = await window.Api.signIn(account, password);
-      } else {
-        user = await window.Api.signUp(account, password, nickname);
-      }
-
-      currentUser = user;
+      const saved = window.Api.setNickname(nickname);
       renderUserArea();
-
-      msgEl.textContent = (authMode === 'login' ? '登录成功！' : '注册成功并已自动登录！') + ' 正在进入...';
+      msgEl.textContent = `昵称已保存：${saved}（仅存于本机）`;
       msgEl.className = 'form-msg success';
 
       setTimeout(() => {
@@ -199,19 +132,10 @@
       msgEl.className = 'form-msg error';
     } finally {
       btn.disabled = false;
-      btn.textContent = authMode === 'login' ? '立即登录' : '立即注册并登录';
     }
   };
 
-  window.handleLogout = async function () {
-    if (window.Api) {
-      await window.Api.signOut();
-      currentUser = null;
-      renderUserArea();
-      loadLikes(currentSlug);
-      loadComments(currentSlug);
-    }
-  };
+  window.handleLogout = function () {};
 
   // ---------- 纠错与投稿 ----------
   window.handleFeedbackSubmit = async function () {
@@ -236,7 +160,7 @@
         issueType,
         description,
         contact,
-        userId: currentUser ? currentUser.id : null,
+        userId: null,
       });
 
       msgEl.textContent = '感谢您的反馈！我们会尽快核实并更新。';
@@ -252,12 +176,6 @@
   };
 
   window.handlePostSubmit = async function () {
-    if (!currentUser && window.Api && window.Api.isConfigured()) {
-      alert('请先登录后再投稿！');
-      showAuthModal();
-      return;
-    }
-
     const cat = document.getElementById('post-cat').value;
     const title = document.getElementById('post-title').value.trim();
     const summary = document.getElementById('post-summary').value.trim();
@@ -281,7 +199,7 @@
         summary,
         content,
         sourceUrl,
-        userId: currentUser ? currentUser.id : 'anonymous',
+        userId: null,
         authorName: getUserDisplayName(),
       });
 
@@ -629,7 +547,7 @@
   // ---------- 3. 右侧栏评论与避坑互动联动 ----------
   async function loadLikes(slug) {
     if (!window.Api || !window.Api.isConfigured()) return;
-    const { count, hasLiked } = await window.Api.getLikes(slug, currentUser ? currentUser.id : null);
+    const { count, hasLiked } = await window.Api.getLikes(slug);
     const btn = document.getElementById('btn-like-' + slug);
     const countEl = document.getElementById('like-count-' + slug);
     if (btn && countEl) {
@@ -652,7 +570,7 @@
     }
 
     try {
-      const comments = await window.Api.getComments(slug, currentUser ? currentUser.id : null);
+      const comments = await window.Api.getComments(slug);
       if (commentCountBadge) {
         commentCountBadge.textContent = `${comments.length}条`;
       }
@@ -717,14 +635,8 @@
     }
   }
 
-  // 提交主评论
+  // 提交主评论（匿名模式：免登录）
   window.handleCurrentCommentSubmit = async function () {
-    if (!currentUser && window.Api && window.Api.isConfigured()) {
-      alert('请登录后再发表避坑评论！');
-      showAuthModal();
-      return;
-    }
-
     if (!commentInputEl) return;
     const content = commentInputEl.value.trim();
     if (!content) return;
@@ -737,7 +649,7 @@
       }
 
       const userName = getUserDisplayName();
-      await window.Api.postComment(currentSlug, currentUser ? currentUser.id : 'anon', userName, content);
+      await window.Api.postComment(currentSlug, userName, content);
       commentInputEl.value = '';
 
       // 重新加载评论列表
@@ -753,15 +665,9 @@
   };
 
   window.handleLikeClick = async function (slug) {
-    if (!currentUser && window.Api && window.Api.isConfigured()) {
-      alert('请登录后再为该政策点赞！');
-      showAuthModal();
-      return;
-    }
-
     try {
       const btn = document.getElementById('btn-like-' + slug);
-      const res = await window.Api.toggleLike(slug, currentUser ? currentUser.id : 'anon');
+      const res = await window.Api.toggleLike(slug);
       const countEl = document.getElementById('like-count-' + slug);
       let count = parseInt(countEl.textContent || '0', 10);
 
@@ -778,16 +684,10 @@
   };
 
   window.handleCommentLike = async function (commentId, slug) {
-    if (!currentUser && window.Api && window.Api.isConfigured()) {
-      alert('请登录后再为评论点赞！');
-      showAuthModal();
-      return;
-    }
-
     try {
       const btn = document.getElementById('btn-c-like-' + commentId);
       const countEl = document.getElementById('c-like-cnt-' + commentId);
-      const res = await window.Api.toggleCommentLike(commentId, currentUser ? currentUser.id : 'anon');
+      const res = await window.Api.toggleCommentLike(commentId);
       let count = parseInt(countEl.textContent || '0', 10);
 
       if (res.action === 'liked') {
@@ -803,12 +703,6 @@
   };
 
   window.toggleReplyBox = function (commentId, targetUserName) {
-    if (!currentUser && window.Api && window.Api.isConfigured()) {
-      alert('请登录后再参与回复交流！');
-      showAuthModal();
-      return;
-    }
-
     const box = document.getElementById('reply-box-' + commentId);
     if (!box) return;
 
@@ -830,12 +724,6 @@
   };
 
   window.handleReplySubmit = async function (slug, parentId, targetUserName) {
-    if (!currentUser && window.Api && window.Api.isConfigured()) {
-      alert('请登录后再回复！');
-      showAuthModal();
-      return;
-    }
-
     const input = document.getElementById('reply-input-' + parentId);
     const content = input.value.trim();
     if (!content) {
@@ -850,7 +738,7 @@
         btn.textContent = '发送中...';
       }
       const userName = getUserDisplayName();
-      await window.Api.postComment(slug, currentUser ? currentUser.id : 'anon', userName, content, parentId, targetUserName);
+      await window.Api.postComment(slug, userName, content, parentId, targetUserName);
       input.value = '';
       const box = document.getElementById('reply-box-' + parentId);
       if (box) box.style.display = 'none';
