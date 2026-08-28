@@ -108,6 +108,53 @@
 
   </div>
 
+  <!-- AI 校园助手：回答只基于已整理校园资料，并展示来源 -->
+  <button
+    class="ai-launcher"
+    id="ai-launcher"
+    type="button"
+    aria-controls="ai-panel"
+    aria-expanded="false"
+  >
+    <span class="ai-launcher-mark" aria-hidden="true">问</span>
+    <span class="ai-launcher-copy"><b>山商 AI 助手</b><small>校园资料值班中</small></span>
+  </button>
+
+  <aside class="ai-panel" id="ai-panel" aria-label="山商 AI 助手" hidden>
+    <header class="ai-panel-header">
+      <div>
+        <div class="ai-panel-eyebrow"><span></span> CAMPUS DESK · AI</div>
+        <h2>校园办事值班台</h2>
+        <p>先查资料，再回答；每条结论都应有出处。</p>
+      </div>
+      <button class="ai-close" id="ai-close" type="button" aria-label="关闭校园助手">×</button>
+    </header>
+
+    <div class="ai-messages" id="ai-messages" aria-live="polite">
+      <div class="ai-message ai-message-assistant">
+        <div class="ai-message-label">AI 值班台</div>
+        <div class="ai-bubble">你好，我可以帮你查报到、选课、考试、资助、宿舍和校园服务。回答会附上参考资料；没有可靠依据时，我会明确告诉你。</div>
+      </div>
+      <div class="ai-suggestions" id="ai-suggestions">
+        <button type="button" data-question="新生报到需要带什么材料？">新生报到带什么</button>
+        <button type="button" data-question="宿舍可以使用哪些电器？">宿舍用电规定</button>
+        <button type="button" data-question="挂科以后补考和重修怎么办？">补考与重修</button>
+      </div>
+    </div>
+
+    <footer class="ai-composer">
+      <form id="ai-form">
+        <label class="sr-only" for="ai-input">向校园助手提问</label>
+        <textarea id="ai-input" rows="1" maxlength="500" placeholder="例如：助学金需要准备哪些材料？"></textarea>
+        <button id="ai-send" type="submit" aria-label="发送问题">发送</button>
+      </form>
+      <div class="ai-composer-meta">
+        <span id="ai-remaining">请勿输入学号、手机号等个人信息</span>
+        <span>Enter 发送 · Shift+Enter 换行</span>
+      </div>
+    </footer>
+  </aside>
+
   <!-- 3. 模态框 1：设置昵称（匿名模式 · 昵称仅存本机，不收集个人信息） -->
   <div class="modal-overlay" id="modal-auth" style="display:none;">
     <div class="modal">
@@ -231,5 +278,6 @@
   <script src="js/data.js"></script>
   <script src="js/api.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/ai.js"></script>
 </body>
 </html>

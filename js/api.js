@@ -719,6 +719,57 @@ const Api = {
   },
 
   // ==========================================
+  // AI 校园助手（模型密钥仅存在 Supabase Edge Function）
+  // ==========================================
+
+  /**
+   * 向校园 AI 助手提问。前端只发送问题与本地匿名 ID，
+   * 不保存聊天正文，也不会接触模型 API 密钥。
+   */
+  async askCampusAI(question) {
+    if (!this.isConfigured()) {
+      throw new Error('校园助手后端尚未配置');
+    }
+
+    if (window.location.protocol === 'file:') {
+      throw new Error('请通过本地开发服务器打开网站，不能直接双击 HTML 文件使用校园助手');
+    }
+
+    let response;
+    try {
+      response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/campus-ai`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_CONFIG.anonKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: String(question || '').trim(),
+          clientId: this.getAnonymousId(),
+        }),
+      });
+    } catch (error) {
+      throw new Error('无法连接校园助手。请检查网络；本地预览时请通过 localhost 或 127.0.0.1 打开网站');
+    }
+
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error('校园助手返回了无法识别的响应');
+    }
+
+    if (!response.ok) {
+      const error = new Error(payload.error || '校园助手暂时不可用');
+      error.status = response.status;
+      error.resetAt = payload.resetAt || null;
+      throw error;
+    }
+
+    return payload;
+  },
+
+  // ==========================================
   // 站点配置 (Site Settings)
   // ==========================================
 

@@ -18,6 +18,12 @@
 | 后端 | Supabase（PostgreSQL + Auth + RLS 行级安全） |
 | 自动化 | GitHub Actions（定时抓取） + GitHub Pages（托管） |
 
+## AI 校园助手（第一阶段）
+
+项目已加入基于 Supabase Edge Function 的只读校园问答入口：服务端先从已审核知识库检索相关资料，再调用可配置的大模型生成带来源的回答。模型密钥不会进入浏览器，数据库也不保存聊天正文。
+
+部署与手动配置见 [`AI_SETUP.md`](AI_SETUP.md)。
+
 ## 目录结构
 
 ```
