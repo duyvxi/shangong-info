@@ -60,4 +60,4 @@ fi
 echo ""
 echo "✅ 推送完成！请继续到 GitHub 仓库完成后续配置："
 echo "   1) Settings → Pages → 选择 main 分支 / root 部署"
-echo "   2) Settings → Secrets and variables → Actions 添加 SUPABASE_URL / SUPABASE_ANON_KEY"
+echo "   2) Settings → Secrets and variables → Actions 添加 SUPABASE_URL / SUPABASE_SECRET_KEY"

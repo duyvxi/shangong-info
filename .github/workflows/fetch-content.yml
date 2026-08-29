@@ -1,7 +1,7 @@
 # 内容自动抓取 - 定时工作流
 # 每 6 小时运行一次 scripts/fetch_feeds.py，将抓取的官网新条目写入 Supabase 待审表。
 # 需预先在仓库 Settings -> Secrets 配置：
-#   SUPABASE_URL / SUPABASE_ANON_KEY
+#   SUPABASE_URL / SUPABASE_SECRET_KEY
 name: 抓取校园新内容
 
 on:
@@ -29,7 +29,7 @@ jobs:
       - name: 运行抓取脚本
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: python scripts/fetch_feeds.py
 
       - name: 提交数据文件（新抓取的条目与去重指纹会写回仓库，便于人工审核与部署）

@@ -367,3 +367,5 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
 GRANT SELECT ON public.view_top_items TO anon, authenticated;
 GRANT SELECT ON public.view_search_ranking TO anon, authenticated;
 GRANT SELECT ON public.view_active_news TO anon, authenticated;
+-- 注意：这是项目早期的基础建表脚本。执行后必须继续执行
+-- supabase-security-phase2.sql，以应用当前管理员权限和 RLS 安全规则。

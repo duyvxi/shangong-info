@@ -24,6 +24,10 @@
 
 部署与手动配置见 [`AI_SETUP.md`](AI_SETUP.md)。
 
+## 后台与数据库安全
+
+管理后台已启用 Supabase Auth 管理员门禁，并以最小权限和 RLS 保护数据。管理员登录、GitHub Actions 服务端密钥和安全复检步骤见 [`SECURITY_SETUP.md`](SECURITY_SETUP.md)。
+
 ## 目录结构
 
 ```
@@ -39,7 +43,8 @@ shangong-info/
 │   └── fetch_feeds.py    # 自动抓取脚本（官网/教务处/学生处）
 ├── .github/workflows/
 │   └── fetch-content.yml # 每 6 小时定时抓取
-└── supabase-schema.sql   # 数据库全量建表脚本（幂等，可重复执行）
+├── supabase-schema.sql   # 数据库基础建表脚本
+└── supabase-security-phase2.sql # 管理员与 RLS 安全迁移（基础脚本后执行）
 ```
 
 ## 快速开始（本地预览）
@@ -57,9 +62,9 @@ python -m http.server 8080
 
 1. 在 GitHub 新建仓库（如 `shangong-info`），按下方命令推送本项目；
 2. 仓库 `Settings → Pages` 选择 `main` 分支 `/root` 部署；
-3. 在 `Settings → Secrets and variables → Actions` 添加两个密钥：
+3. 在 `Settings → Secrets and variables → Actions` 添加两个服务端密钥：
    - `SUPABASE_URL`：你的 Supabase Project URL
-   - `SUPABASE_ANON_KEY`：你的 anon/public key
+   - `SUPABASE_SECRET_KEY`：仅供 GitHub Actions 抓取任务使用的 Supabase Secret Key
 
 推送后自动更新功能即随 GitHub Actions 每 6 小时运行一次。
 

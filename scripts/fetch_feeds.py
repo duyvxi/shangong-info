@@ -13,8 +13,8 @@ from bs4 import BeautifulSoup
 from supabase import create_client
 
 # 环境变量（由 GitHub Actions secrets 注入）
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_ANON_KEY"]
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
 
 # 抓取源配置：(key, 中文名, 列表页URL, 默认归属板块)
 SOURCES = [
@@ -82,7 +82,7 @@ def is_crawl_paused(supabase) -> bool:
 
 def main():
     if not SUPABASE_URL or not SUPABASE_KEY:
-        print("[error] 缺少 SUPABASE_URL / SUPABASE_ANON_KEY 环境变量")
+        print("[error] 缺少 SUPABASE_URL / SUPABASE_SECRET_KEY 环境变量")
         sys.exit(1)
 
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)

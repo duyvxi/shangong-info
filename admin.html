@@ -38,21 +38,55 @@
     .btn-action { padding: 4px 8px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); }
     .btn-danger { color: #dc2626; border-color: #fca5a5; }
     .btn-success { color: #16a34a; border-color: #86efac; }
+    .admin-auth-gate {
+      min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      background: radial-gradient(circle at top left, #fff1eb 0, #f4f6fa 42%);
+    }
+    .admin-login-card {
+      width: min(420px, 100%); background: #fff; border: 1px solid var(--border);
+      border-radius: 14px; padding: 28px; box-shadow: 0 18px 60px rgba(15, 23, 42, 0.1);
+    }
+    .admin-login-card h1 { margin: 0 0 8px; font-size: 24px; }
+    .admin-login-card p { margin: 0 0 22px; color: var(--muted); line-height: 1.65; }
+    .admin-login-card label { display: block; margin: 14px 0 6px; font-size: 13px; font-weight: 700; }
+    .admin-login-card input {
+      width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid var(--border);
+      border-radius: 8px; font: inherit; outline: none;
+    }
+    .admin-login-card input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(250, 84, 28, .12); }
+    .admin-login-card .btn { width: 100%; margin-top: 18px; justify-content: center; }
+    .admin-login-msg { min-height: 20px; margin-top: 12px; font-size: 13px; color: #b91c1c; }
   </style>
 </head>
 <body>
 
-  <header class="topbar">
+  <section id="admin-auth-gate" class="admin-auth-gate">
+    <form class="admin-login-card" id="admin-login-form">
+      <div style="font-size:12px;font-weight:800;letter-spacing:.12em;color:var(--brand);margin-bottom:10px;">SECURE ADMIN</div>
+      <h1>站点管理登录</h1>
+      <p>只有已授权管理员可以读取审核数据或修改站点内容。</p>
+      <label for="admin-account">账号或邮箱</label>
+      <input id="admin-account" name="account" autocomplete="username" required>
+      <label for="admin-password">密码</label>
+      <input id="admin-password" name="password" type="password" autocomplete="current-password" required minlength="6">
+      <button class="btn btn-primary" id="admin-login-btn" type="submit">安全登录</button>
+      <div class="admin-login-msg" id="admin-login-msg" role="alert"></div>
+      <a href="index.html" style="display:block;text-align:center;margin-top:12px;font-size:13px;">返回学生主站</a>
+    </form>
+  </section>
+
+  <header class="topbar" id="admin-header" style="display:none;">
     <div class="topbar-inner">
       <div class="logo"><a href="index.html">← 返回学生主站</a></div>
       <div style="font-size:14px; font-weight:700; color:var(--brand);">🛠️ 站点管理与数据驾驶舱</div>
       <div>
         <button class="btn btn-outline btn-sm" onclick="loadAllAdminData()">🔄 刷新数据</button>
+        <button class="btn btn-outline btn-sm" onclick="handleAdminLogout()">退出登录</button>
       </div>
     </div>
   </header>
 
-  <div class="admin-wrap">
+  <div class="admin-wrap" id="admin-app" style="display:none;">
     <!-- 导航切换 -->
     <div class="admin-nav">
       <button class="active" id="nav-dash" onclick="switchAdminTab('dash')">📊 数据统计看板</button>
@@ -252,6 +286,75 @@
   <script src="js/data.js"></script>
   <script src="js/api.js"></script>
   <script>
+    function escapeHtml(value) {
+      return String(value == null ? '' : value).replace(/[&<>'"]/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      })[char]);
+    }
+
+    function safeExternalUrl(value) {
+      try {
+        const url = new URL(String(value || ''));
+        return ['http:', 'https:'].includes(url.protocol) ? escapeHtml(url.href) : '#';
+      } catch (error) {
+        return '#';
+      }
+    }
+
+    function showAdminLogin(message = '') {
+      document.getElementById('admin-auth-gate').style.display = 'grid';
+      document.getElementById('admin-header').style.display = 'none';
+      document.getElementById('admin-app').style.display = 'none';
+      document.getElementById('admin-login-msg').textContent = message;
+    }
+
+    async function showAdminApp() {
+      document.getElementById('admin-auth-gate').style.display = 'none';
+      document.getElementById('admin-header').style.display = '';
+      document.getElementById('admin-app').style.display = '';
+      await loadAllAdminData();
+    }
+
+    async function initializeAdminPage() {
+      if (!window.Api || !window.Api.isConfigured()) {
+        showAdminLogin('Supabase 未配置，请先检查 api.js');
+        return;
+      }
+      try {
+        const admin = await window.Api.getCurrentAdmin();
+        if (admin) await showAdminApp();
+        else showAdminLogin();
+      } catch (error) {
+        showAdminLogin('无法验证管理员会话，请检查网络后重试');
+      }
+    }
+
+    async function handleAdminLogin(event) {
+      event.preventDefault();
+      const account = document.getElementById('admin-account').value.trim();
+      const password = document.getElementById('admin-password').value;
+      const button = document.getElementById('admin-login-btn');
+      const message = document.getElementById('admin-login-msg');
+      button.disabled = true;
+      button.textContent = '正在验证...';
+      message.textContent = '';
+      try {
+        await window.Api.signInAdmin(account, password);
+        document.getElementById('admin-password').value = '';
+        await showAdminApp();
+      } catch (error) {
+        message.textContent = error.message || '登录失败';
+      } finally {
+        button.disabled = false;
+        button.textContent = '安全登录';
+      }
+    }
+
+    async function handleAdminLogout() {
+      await window.Api.signOut();
+      showAdminLogin('已安全退出后台');
+    }
+
     function switchAdminTab(tab) {
       ['dash', 'users', 'comments', 'feeds', 'feedback', 'submissions'].forEach(t => {
         const nav = document.getElementById('nav-' + t);
@@ -268,6 +371,11 @@
     async function loadAllAdminData() {
       if (!window.Api || !window.Api.isConfigured()) {
         alert('Supabase 未配置，请先检查 api.js');
+        return;
+      }
+      const admin = await window.Api.getCurrentAdmin();
+      if (!admin) {
+        showAdminLogin('登录已失效，请重新登录');
         return;
       }
 
@@ -293,9 +401,9 @@
           topBody.innerHTML = topItems.map((item, idx) => `
             <tr>
               <td><b>#${idx + 1}</b></td>
-              <td><code>${item.item_slug}</code></td>
-              <td><span class="tag">${item.cat_id}</span></td>
-              <td><b>${item.view_count}</b> 次</td>
+              <td><code>${escapeHtml(item.item_slug)}</code></td>
+              <td><span class="tag">${escapeHtml(item.cat_id)}</span></td>
+              <td><b>${Number(item.view_count) || 0}</b> 次</td>
             </tr>
           `).join('');
         }
@@ -312,8 +420,8 @@
         } else {
           kwBody.innerHTML = searchKws.map(kw => `
             <tr>
-              <td><b>${kw.keyword}</b></td>
-              <td>${kw.search_count} 次</td>
+              <td><b>${escapeHtml(kw.keyword)}</b></td>
+              <td>${Number(kw.search_count) || 0} 次</td>
               <td>${kw.zero_hit_count > 0 ? '<span class="badge-status badge-banned">暂无匹配(急需补充)</span>' : '<span class="badge-status badge-active">已覆盖</span>'}</td>
             </tr>
           `).join('');
@@ -331,10 +439,10 @@
         } else {
           userBody.innerHTML = users.map(u => `
             <tr>
-              <td><b>${u.account_raw}</b></td>
-              <td>${u.nickname || '未设置'}</td>
-              <td><code>${u.role}</code></td>
-              <td><span class="badge-status ${u.status === 'active' ? 'badge-active' : 'badge-banned'}">${u.status}</span></td>
+              <td><b>${escapeHtml(u.account_raw)}</b></td>
+              <td>${escapeHtml(u.nickname || '未设置')}</td>
+              <td><code>${escapeHtml(u.role)}</code></td>
+              <td><span class="badge-status ${u.status === 'active' ? 'badge-active' : 'badge-banned'}">${escapeHtml(u.status)}</span></td>
               <td>${new Date(u.created_at).toLocaleString()}</td>
               <td>
                 ${u.status === 'active' 
@@ -345,7 +453,7 @@
           `).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-users').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">加载失败：${err.message || '请先在 Supabase 执行最新的 SQL 脚本创建 profiles 表'}</td></tr>`;
+        document.getElementById('tbl-users').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message || '请先在 Supabase 执行最新的 SQL 脚本创建 profiles 表')}</td></tr>`;
       }
 
       // 5. 加载评论与回复审查
@@ -357,13 +465,13 @@
         } else {
           cmBody.innerHTML = comments.map(c => `
             <tr>
-              <td><code>${c.item_slug}</code></td>
+              <td><code>${escapeHtml(c.item_slug)}</code></td>
               <td>${c.parent_id ? '<span class="tag" style="background:#fef3c7;color:#92400e;">楼中楼回复</span>' : '<span class="tag" style="background:#e0f2fe;color:#0369a1;">主评论</span>'}</td>
               <td>
-                <b>${c.user_name}</b>
-                ${c.reply_to_name ? `<br><small style="color:#64748b;">回复 @${c.reply_to_name}</small>` : ''}
+                <b>${escapeHtml(c.user_name)}</b>
+                ${c.reply_to_name ? `<br><small style="color:#64748b;">回复 @${escapeHtml(c.reply_to_name)}</small>` : ''}
               </td>
-              <td style="max-width:240px; word-break:break-all;">${c.content}</td>
+              <td style="max-width:240px; word-break:break-all;">${escapeHtml(c.content)}</td>
               <td><span class="badge-status ${c.status === 'approved' ? 'badge-active' : 'badge-banned'}">${c.status === 'approved' ? '正常显示' : '已屏蔽'}</span></td>
               <td>${new Date(c.created_at).toLocaleString()}</td>
               <td>
@@ -375,7 +483,7 @@
           `).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-comments').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${err.message}</td></tr>`;
+        document.getElementById('tbl-comments').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message)}</td></tr>`;
       }
 
       // 6. 加载内容源自动抓取 (feeds)
@@ -406,7 +514,7 @@
                 { id: 'grad', name: '毕业就业' }
               ];
 
-          const categoryOptions = catList.map(c => `<option value="${c.id}">📂 ${c.name}</option>`).join('');
+          const categoryOptions = catList.map(c => `<option value="${escapeHtml(c.id)}">📂 ${escapeHtml(c.name)}</option>`).join('');
 
           feedsBody.innerHTML = feeds.map(f => {
             const currentCatName = f.cat === 'news' ? '📢 今日最新消息' : (catList.find(c => c.id === f.cat)?.name || f.cat || '-');
@@ -429,15 +537,15 @@
 
             return `
             <tr>
-              <td><span class="tag">${f.source_name || f.source}</span></td>
+              <td><span class="tag">${escapeHtml(f.source_name || f.source)}</span></td>
               <td>
-                <b>${f.title}</b><br>
-                ${f.summary ? `<div style="font-size:12px;color:#64748b;margin-top:2px;max-width:320px;">${f.summary}</div>` : ''}
-                <a href="${f.source_url || f.link || '#'}" target="_blank" rel="noopener" style="font-size:11px;color:#fa541c;">查看官方原文 →</a>
+                <b>${escapeHtml(f.title)}</b><br>
+                ${f.summary ? `<div style="font-size:12px;color:#64748b;margin-top:2px;max-width:320px;">${escapeHtml(f.summary)}</div>` : ''}
+                <a href="${safeExternalUrl(f.source_url || f.link)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#fa541c;">查看官方原文 →</a>
               </td>
-              <td>${f.pub_date || '-'}</td>
+              <td>${escapeHtml(f.pub_date || '-')}</td>
               <td>
-                <span class="tag" style="background:#fff1eb;color:#fa541c;font-weight:600;">${currentCatName}</span>
+                <span class="tag" style="background:#fff1eb;color:#fa541c;font-weight:600;">${escapeHtml(currentCatName)}</span>
                 ${expireInfoHtml}
               </td>
               <td>
@@ -472,7 +580,7 @@
           }).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-feeds').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${err.message || '请先在 Supabase 执行最新 SQL 创建 feeds 表'}</td></tr>`;
+        document.getElementById('tbl-feeds').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message || '请先在 Supabase 执行最新 SQL 创建 feeds 表')}</td></tr>`;
       }
 
       // 7. 加载纠错反馈
@@ -484,16 +592,16 @@
         } else {
           fbBody.innerHTML = feedbacks.map(f => `
             <tr>
-              <td><code>${f.item_slug}</code></td>
-              <td><span class="badge-status badge-todo">${f.issue_type}</span></td>
-              <td>${f.description}</td>
-              <td>${f.contact || '匿名'}</td>
+              <td><code>${escapeHtml(f.item_slug)}</code></td>
+              <td><span class="badge-status badge-todo">${escapeHtml(f.issue_type)}</span></td>
+              <td>${escapeHtml(f.description)}</td>
+              <td>${escapeHtml(f.contact || '匿名')}</td>
               <td>${new Date(f.created_at).toLocaleDateString()}</td>
             </tr>
           `).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-feedbacks').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${err.message}</td></tr>`;
+        document.getElementById('tbl-feedbacks').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message)}</td></tr>`;
       }
 
       // 7. 加载投稿
@@ -505,16 +613,16 @@
         } else {
           subBody.innerHTML = submissions.map(s => `
             <tr>
-              <td><span class="tag">${s.cat}</span></td>
-              <td><b>${s.title}</b></td>
-              <td>${s.author_name}</td>
-              <td><span class="badge-status ${s.status === 'published' ? 'badge-active' : 'badge-todo'}">${s.status}</span></td>
+              <td><span class="tag">${escapeHtml(s.cat)}</span></td>
+              <td><b>${escapeHtml(s.title)}</b></td>
+              <td>${escapeHtml(s.author_name)}</td>
+              <td><span class="badge-status ${s.status === 'published' ? 'badge-active' : 'badge-todo'}">${escapeHtml(s.status)}</span></td>
               <td>${new Date(s.created_at).toLocaleDateString()}</td>
             </tr>
           `).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-submissions').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${err.message}</td></tr>`;
+        document.getElementById('tbl-submissions').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message)}</td></tr>`;
       }
     }
 
@@ -641,8 +749,8 @@
       }
     }
 
-    // 页面就绪自动加载
-    window.addEventListener('DOMContentLoaded', loadAllAdminData);
+    document.getElementById('admin-login-form').addEventListener('submit', handleAdminLogin);
+    window.addEventListener('DOMContentLoaded', initializeAdminPage);
   </script>
 </body>
 </html>

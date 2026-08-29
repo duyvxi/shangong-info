@@ -41,13 +41,20 @@ const Api = {
   getAnonymousId() {
     try {
       let id = localStorage.getItem('sdtbu_anon_id');
-      if (!id) {
-        id = 'anon_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+      const isUuid = typeof id === 'string'
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+      if (!isUuid) {
+        id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+              const value = Math.floor(Math.random() * 16);
+              return (char === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+            });
         localStorage.setItem('sdtbu_anon_id', id);
       }
       return id;
     } catch (e) {
-      return 'anon_' + Date.now();
+      return '00000000-0000-4000-8000-000000000000';
     }
   },
 
@@ -177,6 +184,24 @@ const Api = {
     if (error) throw error;
   },
 
+  /**
+   * 返回当前可信管理员。客户端判断仅用于页面体验，真正权限由数据库 RLS 强制执行。
+   */
+  async getCurrentAdmin() {
+    const user = await this.getCurrentUser();
+    return user && user.app_metadata && user.app_metadata.role === 'admin' ? user : null;
+  },
+
+  async signInAdmin(account, password) {
+    await this.signIn(account, password);
+    const admin = await this.getCurrentAdmin();
+    if (!admin) {
+      await this.signOut();
+      throw new Error('该账号没有后台管理员权限');
+    }
+    return admin;
+  },
+
   // ==========================================
   // 点赞互动 (Likes)
   // ==========================================
@@ -229,10 +254,8 @@ const Api = {
       .maybeSingle();
 
     if (existing) {
-      // 取消点赞
-      const { error } = await supabaseClient.from('item_likes').delete().eq('id', existing.id);
-      if (error) throw error;
-      return { action: 'unliked' };
+      // 匿名身份无法安全证明删除归属，安全加固后不再开放公开删除。
+      return { action: 'liked', unchanged: true };
     } else {
       // 新增点赞
       const { error } = await supabaseClient.from('item_likes').insert({
@@ -348,16 +371,16 @@ const Api = {
       user_id: this.getAnonymousId(),
       user_name: (userName || '匿名同学').trim().slice(0, 20),
       content: content.trim(),
-      status: 'approved',
+      status: 'pending',
     };
 
     if (parentId) payload.parent_id = parentId;
     if (replyToName) payload.reply_to_name = replyToName;
 
-    const { data, error } = await supabaseClient.from('comments').insert(payload).select().single();
+    const { error } = await supabaseClient.from('comments').insert(payload);
 
     if (error) throw error;
-    return data;
+    return { pending: true };
   },
 
   /**
@@ -378,10 +401,7 @@ const Api = {
       .maybeSingle();
 
     if (existing) {
-      // 取消点赞
-      const { error } = await supabaseClient.from('comment_likes').delete().eq('id', existing.id);
-      if (error) throw error;
-      return { action: 'unliked' };
+      return { action: 'liked', unchanged: true };
     } else {
       // 新增点赞
       const { error } = await supabaseClient.from('comment_likes').insert({

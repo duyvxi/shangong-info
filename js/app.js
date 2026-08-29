@@ -651,9 +651,7 @@
       const userName = getUserDisplayName();
       await window.Api.postComment(currentSlug, userName, content);
       commentInputEl.value = '';
-
-      // 重新加载评论列表
-      loadComments(currentSlug);
+      alert('评论已提交，审核通过后将在页面显示。');
     } catch (err) {
       alert(err.message || '发表失败，请重试');
     } finally {
@@ -671,6 +669,10 @@
       const countEl = document.getElementById('like-count-' + slug);
       let count = parseInt(countEl.textContent || '0', 10);
 
+      if (res.unchanged) {
+        if (btn) btn.classList.add('liked');
+        return;
+      }
       if (res.action === 'liked') {
         if (btn) btn.classList.add('liked');
         if (countEl) countEl.textContent = count + 1;
@@ -690,6 +692,10 @@
       const res = await window.Api.toggleCommentLike(commentId);
       let count = parseInt(countEl.textContent || '0', 10);
 
+      if (res.unchanged) {
+        if (btn) btn.classList.add('liked');
+        return;
+      }
       if (res.action === 'liked') {
         if (btn) btn.classList.add('liked');
         if (countEl) countEl.textContent = count + 1;
@@ -742,8 +748,7 @@
       input.value = '';
       const box = document.getElementById('reply-box-' + parentId);
       if (box) box.style.display = 'none';
-
-      loadComments(slug);
+      alert('回复已提交，审核通过后将在页面显示。');
     } catch (err) {
       alert(err.message || '回复失败');
     } finally {
