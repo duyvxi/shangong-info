@@ -752,12 +752,16 @@ const Api = {
     }
 
     if (window.location.protocol === 'file:') {
-      throw new Error('请通过本地开发服务器打开网站，不能直接双击 HTML 文件使用校园助手');
+      throw new Error('当前页面是本地文件模式，浏览器会阻止 AI 请求。请关闭本页并双击项目中的“启动本地预览.cmd”');
     }
 
+    const endpoint = `${SUPABASE_CONFIG.url}/functions/v1/campus-ai`;
+    const controller = new AbortController();
+    // Edge Function 最多等待模型 55 秒；浏览器多预留 15 秒给检索与网络传输。
+    const timeoutId = setTimeout(() => controller.abort(), 70000);
     let response;
     try {
-      response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/campus-ai`, {
+      response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_CONFIG.anonKey,
@@ -767,9 +771,30 @@ const Api = {
           question: String(question || '').trim(),
           clientId: this.getAnonymousId(),
         }),
+        signal: controller.signal,
       });
     } catch (error) {
-      throw new Error('无法连接校园助手。请检查网络；本地预览时请通过 localhost 或 127.0.0.1 打开网站');
+      if (error && error.name === 'AbortError') {
+        throw new Error('校园助手响应超时，请稍后重试');
+      }
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw new Error('当前设备处于离线状态，请联网后重试');
+      }
+
+      const hostname = window.location.hostname;
+      const isLoopback = ['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(hostname)
+        || hostname.endsWith('.localhost');
+      const isPrivateNetwork = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname);
+      const isOfficialSite = [
+        'https://duyvxi.github.io',
+        'https://dgtzddf-2lxcnmk2.edgeone.cool',
+      ].includes(window.location.origin);
+      if (!isLoopback && !isPrivateNetwork && !isOfficialSite) {
+        throw new Error(`当前预览来源 ${window.location.origin} 尚未加入校园助手白名单，请改用 localhost 或联系维护者添加该地址`);
+      }
+      throw new Error('浏览器无法访问校园助手服务。请检查网络代理、防火墙或浏览器拦截扩展后重试');
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     let payload = {};

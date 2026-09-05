@@ -8,7 +8,19 @@
 - `supabase-ai-phase1.sql`：知识库、匿名额度和无正文用量日志。
 - `scripts/sync_knowledge.mjs`：把 `js/data.js` 同步到知识表。
 - `supabase/functions/campus-ai/index.ts`：检索与模型调用接口。
-- `js/ai.js`：主站聊天抽屉。
+- `js/ai.js`：移动端 AI 助手页面。
+
+## 本地预览
+
+不要直接双击 `index.html`。本地文件使用 `file://` 来源，浏览器会阻止它调用远程 Edge Function。
+
+Windows 下可双击项目根目录的 `启动本地预览.cmd`，或在终端运行：
+
+```powershell
+node .\scripts\dev-server.mjs
+```
+
+然后访问 `http://127.0.0.1:4173/#/ai`。预览期间需要保持服务窗口开启。
 
 ## 需要在 Supabase 中设置的秘密变量
 
@@ -27,7 +39,8 @@
 | `AI_PROVIDER` | 供应商简短名称，仅用于费用日志 |
 | `AI_RATE_LIMIT_SALT` | 至少 32 字节的随机字符串，只用于匿名额度哈希 |
 | `AI_REQUEST_LIMIT` | 每个匿名浏览器每小时额度，建议先填 `12` |
-| `AI_ALLOWED_ORIGINS` | `https://duyvxi.github.io`（多个正式域名用英文逗号分隔；本机 localhost/127.0.0.1 的任意端口已自动允许） |
+| `AI_ALLOWED_ORIGINS` | `https://duyvxi.github.io,https://dgtzddf-2lxcnmk2.edgeone.cool`（多个正式域名用英文逗号分隔，不要加结尾 `/`；本机 localhost/127.0.0.1 的任意端口已自动允许） |
+| `AI_MODEL_TIMEOUT_MS` | 可选；等待模型的毫秒数，默认 `55000`，允许范围 `10000`～`90000` |
 
 PowerShell 7 可生成额度盐：
 
@@ -52,11 +65,13 @@ Remove-Item Env:SUPABASE_SECRET_KEY
 
 ## 使用 Supabase CLI 重新部署函数（可选）
 
+Windows 可直接双击项目根目录的 `部署Supabase函数.cmd`。脚本显式调用 `npx.cmd`，不会受到 PowerShell 对 `npx.ps1` 的执行策略限制。
+
 本机安装并登录 Supabase CLI 后：
 
 ```powershell
-supabase link --project-ref hadujcmbmgkypdqgulyh
-supabase functions deploy campus-ai --no-verify-jwt
+npx.cmd supabase login
+npx.cmd supabase functions deploy campus-ai --project-ref hadujcmbmgkypdqgulyh --no-verify-jwt --use-api
 ```
 
 这里关闭平台 JWT 校验，是因为本站保持无需登录的匿名模式；函数内部仍校验项目 publishable/anon key、请求来源和每小时额度。

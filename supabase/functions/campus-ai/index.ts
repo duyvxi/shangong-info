@@ -12,8 +12,19 @@ type KnowledgeDocument = {
   verified_at: string | null;
 };
 
+class CampusAIError extends Error {
+  code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "CampusAIError";
+    this.code = code;
+  }
+}
+
 const DEFAULT_ORIGINS = [
   "https://duyvxi.github.io",
+  "https://dgtzddf-2lxcnmk2.edgeone.cool",
   "http://localhost:8080",
   "http://127.0.0.1:8080",
 ];
@@ -240,22 +251,37 @@ async function callModel(question: string, context: string, clientHash: string) 
         temperature: 0.2,
       };
 
+  const configuredTimeout = Number(env("AI_MODEL_TIMEOUT_MS", "55000"));
+  const modelTimeoutMs = Number.isFinite(configuredTimeout)
+    ? Math.min(Math.max(configuredTimeout, 10000), 90000)
+    : 55000;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), modelTimeoutMs);
   try {
-    const response = await fetch(`${baseUrl}/${style === "responses" ? "responses" : "chat/completions"}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/${style === "responses" ? "responses" : "chat/completions"}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new CampusAIError("MODEL_TIMEOUT", `模型服务在 ${modelTimeoutMs}ms 内未响应`);
+      }
+      throw new CampusAIError("MODEL_NETWORK", error instanceof Error ? error.message : "模型网络请求失败");
+    }
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) {
       const error = payload.error as Record<string, unknown> | undefined;
-      throw new Error(typeof error?.message === "string" ? error.message : `模型服务返回 ${response.status}`);
+      const detail = typeof error?.message === "string" ? error.message : `模型服务返回 ${response.status}`;
+      if (response.status === 429) throw new CampusAIError("MODEL_BUSY", detail);
+      if (response.status >= 500) throw new CampusAIError("MODEL_UPSTREAM", detail);
+      throw new CampusAIError("MODEL_REJECTED", detail);
     }
     const answer = extractResponseText(payload, style);
     if (!answer) throw new Error("模型没有返回可显示的文字");
@@ -375,8 +401,13 @@ Deno.serve(async (request: Request) => {
       status: "error",
     });
     const message = error instanceof Error ? error.message : "校园助手暂时不可用";
+    const code = error instanceof CampusAIError ? error.code : "UNKNOWN";
     const publicMessage = message.includes("尚未配置")
       ? "校园助手尚未完成模型配置，请联系站点维护者"
+      : code === "MODEL_TIMEOUT"
+      ? "模型本次响应超时，请点击“再次提问”重试"
+      : ["MODEL_BUSY", "MODEL_UPSTREAM", "MODEL_NETWORK"].includes(code)
+      ? "模型服务当前繁忙，请稍后点击“再次提问”重试"
       : "校园助手暂时不可用，请稍后再试";
     return jsonResponse({ error: publicMessage }, 500, origin);
   }

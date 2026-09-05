@@ -27,3 +27,6 @@ Thumbs.db
 # ===== 部署产物（若选用静态构建输出）=====
 dist/
 out/
+
+# ===== Supabase CLI 本地状态 =====
+supabase/.temp/

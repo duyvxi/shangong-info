@@ -1,27 +1,38 @@
-// 山商信息通 · GitBook 知识库架构交互逻辑
+// 山商信息通 · 移动端四板块应用
 (function () {
-  const catMap = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
-  let currentSlug = 'xinsheng-baodao'; // 默认当前选中第一篇
-  let currentCat = 'report';
-  let query = '';
-  let expandedCats = new Set(['report']); // 默认展开第一个分类
-  let dynamicItems = []; // 后台审核发布到常规分类的动态内容（异步拉取后合并渲染）
+  'use strict';
 
-  // DOM 节点引用
-  const treeNavEl = document.getElementById('tree-nav');
-  const docArticleEl = document.getElementById('doc-article');
-  const emptyStateEl = document.getElementById('empty-state');
-  const officialLinksGrid = document.getElementById('official-links-grid');
+  const catMap = Object.fromEntries(CATEGORIES.map((category) => [category.id, category]));
+  const catMarks = { report: '新', roll: '籍', course: '课', aid: '助', exam: '考', dorm: '舍', campus: '校', league: '创', grad: '毕' };
+  const pageNames = new Set(['ai', 'info', 'news', 'me']);
+  const scrollPositions = { ai: 0, info: 0, news: 0, me: 0 };
+
+  let activePage = 'ai';
+  let currentSlug = '';
+  let selectedCategory = 'all';
+  let searchQuery = '';
+  let dynamicItems = [];
+  let newsFeeds = [];
+  let newsFilter = 'all';
+
+  const pages = [...document.querySelectorAll('.app-page')];
+  const navItems = [...document.querySelectorAll('.bottom-nav-item')];
+  const categoryGrid = document.getElementById('category-grid');
+  const infoList = document.getElementById('info-card-list');
+  const infoHome = document.getElementById('info-home');
+  const infoDetail = document.getElementById('info-detail');
+  const infoListTitle = document.getElementById('info-list-title');
+  const infoResultCount = document.getElementById('info-result-count');
+  const emptyState = document.getElementById('empty-state');
   const searchInput = document.getElementById('search');
-  const userArea = document.getElementById('user-area');
-  const commentFeedEl = document.getElementById('sidebar-comment-feed');
-  const commentCountBadge = document.getElementById('sidebar-comment-count');
-  const commentInputEl = document.getElementById('comment-input');
+  const docArticle = document.getElementById('doc-article');
+  const commentFeed = document.getElementById('sidebar-comment-feed');
+  const commentCount = document.getElementById('sidebar-comment-count');
+  const commentInput = document.getElementById('comment-input');
+  const bookmarkButton = document.getElementById('detail-bookmark');
 
-  // ---------- 基础工具函数 ----------
-  function esc(str) {
-    if (!str) return '';
-    return String(str)
+  function esc(value) {
+    return String(value ?? '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -29,869 +40,545 @@
       .replace(/'/g, '&#39;');
   }
 
-  function priClass(p) {
-    if (p === '高') return 'pri-high';
-    if (p === '中') return 'pri-mid';
+  function safeUrl(value) {
+    if (!value || String(value).trim() === '#') return '';
+    try {
+      const url = new URL(String(value || ''), location.href);
+      return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+    } catch (error) {
+      return '';
+    }
+  }
+
+  function storageRead(key, fallback = []) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key));
+      return value ?? fallback;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function storageWrite(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (error) {}
+  }
+
+  function allItems() {
+    return [...ITEMS, ...dynamicItems];
+  }
+
+  function getNickname() {
+    if (window.Api) return window.Api.getNickname();
+    try { return localStorage.getItem('sdtbu_nickname') || '匿名同学'; } catch (error) { return '匿名同学'; }
+  }
+
+  function switchPage(page, restoreScroll = true) {
+    const nextPage = pageNames.has(page) ? page : 'ai';
+    if (activePage !== nextPage) scrollPositions[activePage] = window.scrollY;
+    activePage = nextPage;
+    document.body.dataset.currentPage = activePage;
+
+    pages.forEach((section) => {
+      const isActive = section.dataset.page === activePage;
+      section.hidden = !isActive;
+      section.classList.toggle('is-active', isActive);
+    });
+    navItems.forEach((item) => {
+      const isActive = item.dataset.nav === activePage;
+      item.classList.toggle('is-active', isActive);
+      if (isActive) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    });
+
+    if (activePage === 'me') renderMyPage();
+    if (activePage === 'news') renderNews();
+    requestAnimationFrame(() => window.scrollTo({ top: restoreScroll ? scrollPositions[activePage] || 0 : 0, behavior: 'auto' }));
+  }
+
+  function renderCategoryGrid() {
+    if (!categoryGrid) return;
+    categoryGrid.innerHTML = CATEGORIES.map((category) => {
+      const count = allItems().filter((item) => item.cat === category.id).length;
+      return `<button type="button" class="category-card ${selectedCategory === category.id ? 'is-active' : ''}" data-category="${esc(category.id)}">
+        <span class="category-mark">${esc(catMarks[category.id] || category.name.slice(0, 1))}</span>
+        <b>${esc(category.name)}</b><small>${count} 项</small>
+      </button>`;
+    }).join('');
+  }
+
+  function renderInfoList() {
+    if (!infoList) return;
+    const cleanQuery = searchQuery.toLowerCase();
+    const items = allItems().filter((item) => {
+      if (selectedCategory !== 'all' && item.cat !== selectedCategory) return false;
+      if (!cleanQuery) return true;
+      return [item.title, item.summary, item.dept, item.object, item.material]
+        .join(' ').toLowerCase().includes(cleanQuery);
+    });
+
+    const selected = catMap[selectedCategory];
+    infoListTitle.textContent = searchQuery ? '搜索结果' : selected ? selected.name : '常用事项';
+    infoResultCount.textContent = `${items.length} 项`;
+    emptyState.hidden = items.length > 0;
+    infoList.hidden = items.length === 0;
+
+    infoList.innerHTML = items.map((item) => {
+      const category = catMap[item.cat] || { name: '校园信息' };
+      return `<a class="info-card" href="#/info/${encodeURIComponent(item.slug)}">
+        <span class="info-card-mark">${esc(catMarks[item.cat] || '校')}</span>
+        <span class="info-card-copy"><b>${esc(item.title)}</b><small>${esc(item.summary || item.object || '查看事项详情')}</small><em>${esc(category.name)} · ${esc(item.dept || '学校职能部门')}</em></span>
+        ${item.isDynamic ? '<span class="fresh-label">新</span>' : ''}
+        <svg><use href="#icon-arrow"></use></svg>
+      </a>`;
+    }).join('');
+  }
+
+  function selectCategory(category) {
+    selectedCategory = selectedCategory === category ? 'all' : category;
+    renderCategoryGrid();
+    renderInfoList();
+    document.querySelector('.content-section:nth-of-type(2)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function priorityClass(priority) {
+    if (priority === '高') return 'pri-high';
+    if (priority === '中') return 'pri-mid';
     return 'pri-low';
   }
 
-  window.scrollToOfficialLinks = function () {
-    const sec = document.getElementById('official-channels-section');
-    if (sec) sec.scrollIntoView({ behavior: 'smooth' });
+  function renderInfoDetail(item) {
+    if (!item || !docArticle) return;
+    currentSlug = item.slug;
+    infoHome.hidden = true;
+    infoDetail.hidden = false;
+    const category = catMap[item.cat] || { name: '校园信息' };
+    document.getElementById('detail-category-label').textContent = category.name;
+    updateBookmarkButton();
+
+    const steps = item.steps?.length ? `<section class="doc-section"><h2>办理流程</h2><div class="steps-list">${item.steps.map((step, index) => `<div class="step-card"><span class="step-num">${index + 1}</span><span>${esc(step)}</span></div>`).join('')}</div></section>` : '';
+    const dataTable = item.table?.rows ? `<section class="doc-section"><h2>${esc(item.table.title || '相关数据与明细')}</h2><div class="table-scroll"><table class="meta-table"><thead><tr>${(item.table.headers || []).map((head) => `<th>${esc(head)}</th>`).join('')}</tr></thead><tbody>${item.table.rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>` : '';
+    let details = '';
+    if (item.sections?.length) {
+      details = item.sections.map((section) => `<section class="doc-section"><h2>${esc(section.title || '事项说明')}</h2>${section.lead ? `<p class="doc-lead">${esc(section.lead)}</p>` : ''}${section.body ? `<p>${esc(section.body)}</p>` : ''}${section.bullet?.length ? `<ul>${section.bullet.map((line) => `<li>${esc(line)}</li>`).join('')}</ul>` : ''}</section>`).join('');
+    } else if (item.body) {
+      details = `<section class="doc-section"><h2>详细说明</h2><p>${esc(item.body)}</p></section>`;
+    }
+
+    const meta = [
+      ['适用对象', item.object], ['关键时间', item.time], ['负责部门', item.dept],
+      ['联系电话', item.phone], ['办理地点', item.place], ['所需材料', item.material],
+    ].filter(([, value]) => value && !['—', '-'].includes(String(value).trim()));
+    const sourceUrl = safeUrl(item.url);
+
+    docArticle.innerHTML = `<header class="doc-hero">
+      <div class="doc-label-row"><span class="tag ${priorityClass(item.priority)}">${esc(item.priority || '普通')}优先级</span><span class="verified-label"><i></i>资料已整理</span></div>
+      <h1>${esc(item.title)}</h1><p>${esc(item.summary || '查看完整校园事项说明')}</p>
+      <div class="doc-byline"><span>${esc(item.dept || '学校职能部门')}</span><span>${item.date ? `更新于 ${esc(item.date)}` : '请以官方最新通知为准'}</span></div>
+    </header>
+    ${steps}${dataTable}${details}
+    ${meta.length ? `<section class="doc-section"><h2>关键信息</h2><dl class="key-info">${meta.map(([key, value]) => `<div><dt>${key}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl></section>` : ''}
+    ${item.notes ? `<div class="warning-box"><b>办理提醒</b><span>${esc(item.notes)}</span></div>` : ''}
+    <div class="doc-actions">
+      <button class="btn-like" id="btn-like-${esc(item.slug)}" type="button">有帮助 <span id="like-count-${esc(item.slug)}">0</span></button>
+      <button class="btn btn-outline btn-sm" id="feedback-current" type="button">纠错反馈</button>
+      ${sourceUrl ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener">查看官方原文 ↗</a>` : ''}
+    </div>`;
+
+    document.getElementById(`btn-like-${item.slug}`)?.addEventListener('click', () => handleLikeClick(item.slug));
+    document.getElementById('feedback-current')?.addEventListener('click', () => openFeedbackModal(item.slug, item.title));
+    addToHistory(item.slug);
+    loadLikes(item.slug);
+    loadComments(item.slug);
+    window.Api?.recordView(item.slug, item.cat, null);
+  }
+
+  function showInfoHome() {
+    currentSlug = '';
+    infoDetail.hidden = true;
+    infoHome.hidden = false;
+    renderCategoryGrid();
+    renderInfoList();
+  }
+
+  function getBookmarks() { return storageRead('sdtbu_bookmarks', []); }
+  function getLocalLikes() { return storageRead('sdtbu_local_likes', []); }
+  function getHistory() { return storageRead('sdtbu_view_history', []); }
+
+  function addToHistory(slug) {
+    const history = getHistory().filter((entry) => entry.slug !== slug);
+    history.unshift({ slug, at: Date.now() });
+    storageWrite('sdtbu_view_history', history.slice(0, 30));
+    renderMyStats();
+  }
+
+  function updateBookmarkButton() {
+    if (!bookmarkButton) return;
+    const saved = getBookmarks().includes(currentSlug);
+    bookmarkButton.classList.toggle('is-saved', saved);
+    bookmarkButton.setAttribute('aria-label', saved ? '取消收藏当前事项' : '收藏当前事项');
+  }
+
+  function toggleBookmark() {
+    if (!currentSlug) return;
+    const bookmarks = getBookmarks();
+    const next = bookmarks.includes(currentSlug) ? bookmarks.filter((slug) => slug !== currentSlug) : [currentSlug, ...bookmarks];
+    storageWrite('sdtbu_bookmarks', next);
+    updateBookmarkButton();
+    renderMyStats();
+  }
+
+  async function loadLikes(slug) {
+    if (!window.Api?.isConfigured()) return;
+    try {
+      const { count, hasLiked } = await window.Api.getLikes(slug);
+      const button = document.getElementById(`btn-like-${slug}`);
+      const countNode = document.getElementById(`like-count-${slug}`);
+      if (countNode) countNode.textContent = count;
+      button?.classList.toggle('liked', hasLiked);
+    } catch (error) {}
+  }
+
+  window.handleLikeClick = async function (slug) {
+    try {
+      const result = await window.Api.toggleLike(slug);
+      const likes = getLocalLikes();
+      if (!likes.includes(slug)) storageWrite('sdtbu_local_likes', [slug, ...likes]);
+      if (!result.unchanged) {
+        const countNode = document.getElementById(`like-count-${slug}`);
+        if (countNode) countNode.textContent = Number(countNode.textContent || 0) + 1;
+      }
+      document.getElementById(`btn-like-${slug}`)?.classList.add('liked');
+      renderMyStats();
+    } catch (error) { alert(error.message || '点赞失败，请稍后重试'); }
   };
 
-  // ---------- 模态框控制 ----------
+  async function loadComments(slug) {
+    if (!commentFeed) return;
+    commentFeed.innerHTML = '<div class="loading-state">正在加载同学交流…</div>';
+    if (!window.Api?.isConfigured()) {
+      commentFeed.innerHTML = '<div class="app-empty compact"><span>交流区暂未开放</span><p>连接校园数据服务后即可使用。</p></div>';
+      return;
+    }
+    try {
+      const comments = await window.Api.getComments(slug);
+      commentCount.textContent = `${comments.length} 条`;
+      if (!comments.length) {
+        commentFeed.innerHTML = '<div class="app-empty compact"><span>还没有公开留言</span><p>可以提交第一个问题或办事经验。</p></div>';
+        return;
+      }
+      commentFeed.innerHTML = comments.map((comment) => {
+        const replies = comment.replies?.length ? `<div class="comment-replies">${comment.replies.map((reply) => `<div class="reply-item"><b>${esc(reply.user_name)}</b>${reply.reply_to_name ? ` 回复 ${esc(reply.reply_to_name)}` : ''}：${esc(reply.content)}</div>`).join('')}</div>` : '';
+        return `<article class="comment-card" data-comment-id="${esc(comment.id)}">
+          <div class="comment-user-row"><span class="comment-avatar">${esc((comment.user_name || '同').slice(0, 1))}</span><b>${esc(comment.user_name || '匿名同学')}</b><time>${new Date(comment.created_at).toLocaleDateString('zh-CN')}</time></div>
+          <p>${esc(comment.content)}</p>
+          <div class="comment-actions"><button type="button" data-action="comment-like" class="${comment.has_liked ? 'liked' : ''}">有帮助 <span>${comment.like_count || 0}</span></button><button type="button" data-action="reply">回复</button></div>
+          <div class="inline-reply-box" hidden><textarea rows="2" placeholder="回复 ${esc(comment.user_name || '这位同学')}"></textarea><div><button class="btn btn-outline btn-sm" type="button" data-action="cancel-reply">取消</button><button class="btn btn-primary btn-sm" type="button" data-action="send-reply">发送</button></div></div>${replies}
+        </article>`;
+      }).join('');
+
+      commentFeed.querySelectorAll('.comment-card').forEach((card) => {
+        const id = card.dataset.commentId;
+        const comment = comments.find((entry) => String(entry.id) === id);
+        card.querySelector('[data-action="comment-like"]')?.addEventListener('click', (event) => handleCommentLike(id, event.currentTarget));
+        card.querySelector('[data-action="reply"]')?.addEventListener('click', () => { card.querySelector('.inline-reply-box').hidden = false; card.querySelector('textarea').focus(); });
+        card.querySelector('[data-action="cancel-reply"]')?.addEventListener('click', () => { card.querySelector('.inline-reply-box').hidden = true; });
+        card.querySelector('[data-action="send-reply"]')?.addEventListener('click', (event) => submitReply(id, comment?.user_name || '匿名同学', card, event.currentTarget));
+      });
+    } catch (error) {
+      commentFeed.innerHTML = '<div class="app-empty compact"><span>暂时无法加载留言</span><p>检查网络后重新进入本页面。</p></div>';
+    }
+  }
+
+  async function handleCommentLike(commentId, button) {
+    try {
+      const result = await window.Api.toggleCommentLike(commentId);
+      button.classList.add('liked');
+      if (!result.unchanged) button.querySelector('span').textContent = Number(button.querySelector('span').textContent || 0) + 1;
+    } catch (error) { alert(error.message || '操作失败'); }
+  }
+
+  async function submitReply(parentId, targetName, card, button) {
+    const input = card.querySelector('.inline-reply-box textarea');
+    const content = input.value.trim();
+    if (!content) return;
+    try {
+      button.disabled = true;
+      button.textContent = '发送中';
+      await window.Api.postComment(currentSlug, getNickname(), content, parentId, targetName);
+      input.value = '';
+      card.querySelector('.inline-reply-box').hidden = true;
+      alert('回复已提交，审核通过后会公开显示。');
+    } catch (error) { alert(error.message || '回复失败'); }
+    finally { button.disabled = false; button.textContent = '发送'; }
+  }
+
+  window.handleCurrentCommentSubmit = async function () {
+    const content = commentInput?.value.trim();
+    if (!content || !currentSlug) return;
+    const button = document.getElementById('btn-post-comment');
+    try {
+      button.disabled = true;
+      button.textContent = '发送中';
+      await window.Api.postComment(currentSlug, getNickname(), content);
+      commentInput.value = '';
+      alert('留言已提交，审核通过后会公开显示。');
+    } catch (error) { alert(error.message || '发表失败，请稍后重试'); }
+    finally { button.disabled = false; button.textContent = '发表'; }
+  };
+
+  function getFeedDate(feed) {
+    const raw = feed.published_at || feed.created_at || feed.pub_date;
+    const date = raw ? new Date(raw) : new Date();
+    return Number.isNaN(date.getTime()) ? new Date() : date;
+  }
+
+  function feedGroupLabel(feed) {
+    const date = getFeedDate(feed);
+    const today = new Date();
+    const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startFeed = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const difference = Math.round((startToday - startFeed) / 86400000);
+    if (difference <= 0) return '今天';
+    if (difference === 1) return '昨天';
+    return '更早';
+  }
+
+  function feedMatchesFilter(feed) {
+    if (newsFilter === 'all') return true;
+    const text = `${feed.source_name || ''} ${feed.source || ''} ${feed.title || ''}`;
+    if (newsFilter === '校园') return /校园|图书|后勤|保卫|网络|信息/.test(text);
+    return text.includes(newsFilter);
+  }
+
+  function renderNews() {
+    const container = document.getElementById('news-list');
+    if (!container) return;
+    if (!newsFeeds.length) {
+      container.innerHTML = '<div class="app-empty"><span>暂时没有新通知</span><p>我们已经为你同步到最新，稍后再来看看。</p></div>';
+      updateNewsBadge();
+      return;
+    }
+    const filtered = newsFeeds.filter(feedMatchesFilter);
+    if (!filtered.length) {
+      container.innerHTML = '<div class="app-empty"><span>这个分类暂无消息</span><p>切换到“全部”查看其他最新通知。</p></div>';
+      return;
+    }
+    const readIds = new Set(storageRead('sdtbu_read_news', []));
+    const groups = ['今天', '昨天', '更早'];
+    container.innerHTML = groups.map((label) => {
+      const feeds = filtered.filter((feed) => feedGroupLabel(feed) === label);
+      if (!feeds.length) return '';
+      return `<section class="news-day"><h2>${label}</h2>${feeds.map((feed) => {
+        const link = safeUrl(feed.link || feed.source_url);
+        const unread = !readIds.has(String(feed.id));
+        return `<a class="news-item ${unread ? 'is-unread' : ''}" href="${esc(link || '#')}" ${link ? 'target="_blank" rel="noopener"' : ''} data-news-id="${esc(feed.id)}">
+          <i></i><span class="news-copy"><b>${esc(feed.title)}</b><small>${esc(feed.source_name || feed.source || '学校官方')} · ${getFeedDate(feed).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></span><svg><use href="#icon-arrow"></use></svg>
+        </a>`;
+      }).join('')}</section>`;
+    }).join('');
+    container.querySelectorAll('[data-news-id]').forEach((link) => link.addEventListener('click', () => markNewsRead(link.dataset.newsId)));
+    updateNewsBadge();
+  }
+
+  function markNewsRead(id) {
+    const read = storageRead('sdtbu_read_news', []);
+    if (!read.includes(String(id))) storageWrite('sdtbu_read_news', [...read, String(id)].slice(-200));
+    updateNewsBadge();
+  }
+
+  function markAllNewsRead() {
+    storageWrite('sdtbu_read_news', newsFeeds.map((feed) => String(feed.id)));
+    renderNews();
+  }
+
+  function updateNewsBadge() {
+    const readIds = new Set(storageRead('sdtbu_read_news', []));
+    const unread = newsFeeds.filter((feed) => !readIds.has(String(feed.id))).length;
+    const badge = document.getElementById('news-unread-badge');
+    if (!badge) return;
+    badge.hidden = unread === 0;
+    badge.textContent = unread > 9 ? '9+' : String(unread);
+  }
+
+  async function loadNews() {
+    if (!window.Api?.isConfigured()) return renderNews();
+    try { newsFeeds = await window.Api.getPublishedFeeds('news', 30) || []; }
+    catch (error) { newsFeeds = []; }
+    renderNews();
+  }
+
+  function renderMyStats() {
+    const bookmarks = getBookmarks();
+    const history = getHistory();
+    const likes = getLocalLikes();
+    document.getElementById('bookmark-count').textContent = bookmarks.length;
+    document.getElementById('history-count').textContent = history.length;
+    document.getElementById('local-like-count').textContent = likes.length;
+  }
+
+  function renderMyPage() {
+    const nickname = getNickname();
+    document.getElementById('profile-name').textContent = nickname;
+    document.getElementById('profile-avatar').textContent = nickname.slice(0, 1) || '同';
+    renderMyStats();
+  }
+
+  window.showMyList = function (type) {
+    const panel = document.getElementById('me-library-panel');
+    const title = document.getElementById('me-library-title');
+    const list = document.getElementById('me-library-list');
+    const keys = type === 'bookmarks' ? getBookmarks() : type === 'likes' ? getLocalLikes() : getHistory().map((entry) => entry.slug);
+    title.textContent = type === 'bookmarks' ? '我的收藏' : type === 'likes' ? '点赞内容' : '浏览记录';
+    const items = keys.map((slug) => allItems().find((item) => item.slug === slug)).filter(Boolean);
+    list.innerHTML = items.length ? items.map((item) => `<a href="#/info/${encodeURIComponent(item.slug)}"><span><b>${esc(item.title)}</b><small>${esc(catMap[item.cat]?.name || '校园信息')}</small></span><svg><use href="#icon-arrow"></use></svg></a>`).join('') : '<div class="app-empty compact"><span>这里还没有内容</span><p>浏览校园信息时可以收藏或点赞。</p></div>';
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  window.hideMyList = function () { document.getElementById('me-library-panel').hidden = true; };
+
+  function renderOfficialLinks() {
+    const container = document.getElementById('official-links-grid');
+    if (!container) return;
+    container.innerHTML = LINKS.map((link) => `<a class="me-row" href="${esc(safeUrl(link.url))}" target="_blank" rel="noopener"><span class="me-row-icon blue">校</span><span><b>${esc(link.name)}</b><small>学校官方渠道</small></span><svg><use href="#icon-arrow"></use></svg></a>`).join('');
+  }
+
   window.showModal = function (id) {
     const modal = document.getElementById(id);
-    if (modal) modal.style.display = 'flex';
+    if (modal) { modal.style.display = 'flex'; document.body.classList.add('modal-open'); }
   };
 
   window.hideModal = function (id) {
     const modal = document.getElementById(id);
-    if (modal) modal.style.display = 'none';
+    if (modal) { modal.style.display = 'none'; document.body.classList.remove('modal-open'); }
   };
 
   window.openFeedbackModal = function (slug, title) {
-    document.getElementById('fb-slug').value = slug;
-    document.getElementById('fb-item-title').textContent = title;
+    document.getElementById('fb-slug').value = slug || 'general';
+    document.getElementById('fb-item-title').textContent = title || '网站与校园信息';
     document.getElementById('fb-desc').value = '';
     document.getElementById('fb-contact').value = '';
-    const msgEl = document.getElementById('fb-msg');
-    if (msgEl) {
-      msgEl.textContent = '';
-      msgEl.className = 'form-msg';
-    }
+    document.getElementById('fb-msg').textContent = '';
     showModal('modal-feedback');
   };
 
-  // ---------- 匿名昵称模式（v2 · 不收集个人信息） ----------
-  // 无注册、无登录；昵称仅存本机 localStorage，浏览器匿名 ID 用于点赞去重。
-
-  function initAuth() {
-    renderUserArea();
-  }
-
-  function getUserDisplayName() {
-    if (window.Api) return window.Api.getNickname();
-    try {
-      return localStorage.getItem('sdtbu_nickname') || '匿名同学';
-    } catch (e) {
-      return '匿名同学';
-    }
-  }
-
-  function renderUserArea() {
-    if (!userArea) return;
-    const name = getUserDisplayName();
-    userArea.innerHTML = `
-      <div class="user-badge">
-        <span>👤 ${esc(name)}</span>
-        <button class="btn btn-outline btn-sm" onclick="showAuthModal()">改昵称</button>
-      </div>`;
-  }
+  window.openGeneralFeedback = function () { openFeedbackModal('general', '网站与校园信息'); };
 
   window.showAuthModal = function () {
     const input = document.getElementById('auth-nickname');
-    if (input) input.value = getUserDisplayName() === '匿名同学' ? '' : getUserDisplayName();
-    const msgEl = document.getElementById('auth-msg');
-    if (msgEl) {
-      msgEl.textContent = '';
-      msgEl.className = 'form-msg';
-    }
+    input.value = getNickname() === '匿名同学' ? '' : getNickname();
+    document.getElementById('auth-msg').textContent = '';
     showModal('modal-auth');
   };
 
-  window.switchAuthTab = function () {};
-
   window.handleAuthSubmit = async function () {
-    const nickname = document.getElementById('auth-nickname').value.trim();
-    const msgEl = document.getElementById('auth-msg');
-    const btn = document.getElementById('btn-do-auth');
-    const agreeEl = document.getElementById('auth-agree');
-
-    if (!agreeEl || !agreeEl.checked) {
-      msgEl.textContent = '请先阅读并勾选同意《用户协议》与《隐私政策》';
-      msgEl.className = 'form-msg error';
-      return;
-    }
-
-    try {
-      btn.disabled = true;
-      const saved = window.Api.setNickname(nickname);
-      renderUserArea();
-      msgEl.textContent = `昵称已保存：${saved}（仅存于本机）`;
-      msgEl.className = 'form-msg success';
-
-      setTimeout(() => {
-        hideModal('modal-auth');
-        loadLikes(currentSlug);
-        loadComments(currentSlug);
-      }, 800);
-    } catch (err) {
-      msgEl.textContent = err.message || '操作失败，请重试';
-      msgEl.className = 'form-msg error';
-    } finally {
-      btn.disabled = false;
-    }
+    const input = document.getElementById('auth-nickname');
+    const agree = document.getElementById('auth-agree');
+    const message = document.getElementById('auth-msg');
+    const button = document.getElementById('btn-do-auth');
+    if (!agree.checked) { message.textContent = '请先阅读并同意用户协议与隐私政策'; message.className = 'form-msg error'; return; }
+    button.disabled = true;
+    const saved = window.Api.setNickname(input.value);
+    renderMyPage();
+    message.textContent = `昵称已保存：${saved}`;
+    message.className = 'form-msg success';
+    setTimeout(() => hideModal('modal-auth'), 650);
+    button.disabled = false;
   };
 
-  window.handleLogout = function () {};
-
-  // ---------- 纠错与投稿 ----------
   window.handleFeedbackSubmit = async function () {
-    const slug = document.getElementById('fb-slug').value;
-    const issueType = document.getElementById('fb-type').value;
     const description = document.getElementById('fb-desc').value.trim();
-    const contact = document.getElementById('fb-contact').value.trim();
-    const msgEl = document.getElementById('fb-msg');
-    const btn = document.getElementById('btn-do-feedback');
-
-    if (!description) {
-      msgEl.textContent = '请填写具体的纠错描述';
-      msgEl.className = 'form-msg error';
-      return;
-    }
-
+    const message = document.getElementById('fb-msg');
+    const button = document.getElementById('btn-do-feedback');
+    if (!description) { message.textContent = '请填写具体的反馈内容'; message.className = 'form-msg error'; return; }
     try {
-      btn.disabled = true;
-      btn.textContent = '正在提交...';
-      await window.Api.submitFeedback({
-        slug,
-        issueType,
-        description,
-        contact,
-        userId: null,
-      });
-
-      msgEl.textContent = '感谢您的反馈！我们会尽快核实并更新。';
-      msgEl.className = 'form-msg success';
-      setTimeout(() => hideModal('modal-feedback'), 1500);
-    } catch (err) {
-      msgEl.textContent = err.message || '提交失败，请重试';
-      msgEl.className = 'form-msg error';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '提交反馈';
-    }
+      button.disabled = true; button.textContent = '提交中';
+      await window.Api.submitFeedback({ slug: document.getElementById('fb-slug').value, issueType: document.getElementById('fb-type').value, description, contact: document.getElementById('fb-contact').value, userId: null });
+      message.textContent = '反馈已提交，我们会尽快核实。'; message.className = 'form-msg success';
+      setTimeout(() => hideModal('modal-feedback'), 900);
+    } catch (error) { message.textContent = error.message || '提交失败，请稍后重试'; message.className = 'form-msg error'; }
+    finally { button.disabled = false; button.textContent = '提交反馈'; }
   };
 
   window.handlePostSubmit = async function () {
-    const cat = document.getElementById('post-cat').value;
     const title = document.getElementById('post-title').value.trim();
-    const summary = document.getElementById('post-summary').value.trim();
     const content = document.getElementById('post-content').value.trim();
-    const sourceUrl = document.getElementById('post-url').value.trim();
-    const msgEl = document.getElementById('post-msg');
-    const btn = document.getElementById('btn-do-post');
-
-    if (!title || !content) {
-      msgEl.textContent = '事项标题和详细内容为必填项';
-      msgEl.className = 'form-msg error';
-      return;
-    }
-
+    const message = document.getElementById('post-msg');
+    const button = document.getElementById('btn-do-post');
+    if (!title || !content) { message.textContent = '请填写事项标题和详细内容'; message.className = 'form-msg error'; return; }
     try {
-      btn.disabled = true;
-      btn.textContent = '正在提交...';
-      await window.Api.submitArticle({
-        cat,
-        title,
-        summary,
-        content,
-        sourceUrl,
-        userId: null,
-        authorName: getUserDisplayName(),
-      });
-
-      msgEl.textContent = '投稿成功！内容进入待审池，审核通过后将展示在知识库中。';
-      msgEl.className = 'form-msg success';
-      setTimeout(() => hideModal('modal-submit'), 1800);
-    } catch (err) {
-      msgEl.textContent = err.message || '提交失败，请重试';
-      msgEl.className = 'form-msg error';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '提交审核';
-    }
+      button.disabled = true; button.textContent = '提交中';
+      await window.Api.submitArticle({ cat: document.getElementById('post-cat').value, title, summary: document.getElementById('post-summary').value, content, sourceUrl: document.getElementById('post-url').value, userId: null, authorName: getNickname() });
+      message.textContent = '投稿已进入审核队列。'; message.className = 'form-msg success';
+      setTimeout(() => hideModal('modal-submit'), 900);
+    } catch (error) { message.textContent = error.message || '提交失败，请稍后重试'; message.className = 'form-msg error'; }
+    finally { button.disabled = false; button.textContent = '提交审核'; }
   };
 
-  // ---------- 1. 树形目录渲染 (Sidebar Tree View) ----------
-  function toggleGroup(catId) {
-    if (expandedCats.has(catId)) {
-      expandedCats.delete(catId);
-    } else {
-      expandedCats.add(catId);
-    }
-    renderTreeSidebar();
-  }
-
-  function renderTreeSidebar() {
-    if (!treeNavEl) return;
-
-    let html = '';
-    CATEGORIES.forEach((cat) => {
-      // 过滤当前搜索条件下的条目（合并静态 ITEMS + 后台审核发布的动态条目）
-      const catItems = [...ITEMS, ...dynamicItems].filter((item) => {
-        if (item.cat !== cat.id) return false;
-        if (!query) return true;
-        const hay = [item.title, item.summary, item.dept, item.object].join(' ').toLowerCase();
-        return hay.includes(query.toLowerCase());
-      });
-
-      if (query && catItems.length === 0) return; // 搜索时隐藏无匹配项的目录组
-
-      const isExpanded = expandedCats.has(cat.id) || !!query;
-      const count = catItems.length;
-
-      const childrenHtml = catItems
-        .map((item) => {
-          const isActive = item.slug === currentSlug && currentCat !== 'news';
-          const isDynamic = item.isDynamic;
-          return `
-            <a class="tree-item ${isActive ? 'active' : ''}" href="#/section/${cat.id}/item/${item.slug}" data-slug="${item.slug}">
-              <span class="tree-item-dot" style="${isDynamic ? 'background:var(--brand); width:6px; height:6px;' : ''}"></span>
-              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(item.title)}${isDynamic ? ' <span style="color:var(--accent); font-weight:600;">· NEW</span>' : ''}</span>
-            </a>`;
-        })
-        .join('');
-
-      html += `
-        <div class="tree-group ${isExpanded ? 'expanded' : ''}" data-cat="${cat.id}">
-          <div class="tree-parent" onclick="window._toggleTree('${cat.id}')">
-            <div class="tree-parent-left">
-              <span class="tree-arrow">▶</span>
-              <span>${esc(cat.name)}</span>
-            </div>
-            <span class="tree-badge">${count}</span>
-          </div>
-          <div class="tree-children">
-            ${childrenHtml}
-          </div>
-        </div>`;
-    });
-
-    // 在目录最下方添加独立条目【今日最新消息】（不隶属于任何分类）
-    const isNewsActive = currentCat === 'news';
-    html += `
-      <div class="tree-bottom-divider"></div>
-      <a class="tree-standalone-item ${isNewsActive ? 'active' : ''}" href="#/news" title="查看后台审核通过的官方自动更新资讯">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span>📢</span>
-          <span>今日最新消息</span>
-        </div>
-        <span class="tree-badge" style="${isNewsActive ? 'background:rgba(255,255,255,0.25);color:#fff;' : 'background:#fff1eb;color:#fa541c;border-color:#ffd8bf;'}">NEW</span>
-      </a>
-    `;
-
-    treeNavEl.innerHTML = html;
-  }
-
-  window._toggleTree = function (catId) {
-    toggleGroup(catId);
-  };
-
-  // ---------- 2. 中间栏主正文渲染 (GitBook 知识块排版) ----------
-  async function renderNewsFeedView() {
-    if (!docArticleEl) return;
-    docArticleEl.style.display = 'block';
-    if (emptyStateEl) emptyStateEl.style.display = 'none';
-
-    // 渲染骨架加载态
-    docArticleEl.innerHTML = `
-      <!-- 面包屑 -->
-      <nav class="breadcrumb">
-        <a href="#/">知识库</a>
-        <span class="sep">/</span>
-        <span style="color:var(--text); font-weight:500;">今日最新消息</span>
-      </nav>
-
-      <!-- 文档头 -->
-      <div class="doc-header">
-        <h1 class="doc-title">📢 今日最新消息 · 官方通知速递</h1>
-        <div class="doc-meta-row">
-          <span class="tag pri-high">24小时动态轮转</span>
-          <span class="tag tag-dept">全校各部门直通</span>
-          <span class="tag" style="background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0;">后台已人工审核</span>
-          <span>每 6 小时自动巡检</span>
-        </div>
-      </div>
-
-      <!-- Callout 核心摘要 -->
-      <div class="callout-summary">
-        <div class="callout-title">💡 动态速递说明</div>
-        <div class="callout-body">
-          此处汇聚由自动化爬虫从学校官网、教务处、学生处等渠道抓取并经<b>管理员人工审核放行</b>的最新官方通告。为保证资讯时效性，发布在【今日最新消息】的内容<b>在 24 小时后将自动下架轮转</b>。如需按类别查阅完整长效政策，请点击左侧场景目录。
-        </div>
-      </div>
-
-      <h2 class="section-h2">已审核通过的最新通告</h2>
-      <div id="news-feed-list" class="news-feed-container">
-        <div style="text-align:center; padding:40px 0; color:var(--text-muted); font-size:13px;">
-          正在拉取今日最新审核资讯...
-        </div>
-      </div>
-    `;
-
-    const feedContainer = document.getElementById('news-feed-list');
-
-    try {
-      let feeds = [];
-      if (window.Api && window.Api.isConfigured()) {
-        feeds = await window.Api.getPublishedFeeds('news', 30);
-      }
-
-      if (!feeds || feeds.length === 0) {
-        if (feedContainer) {
-          feedContainer.innerHTML = `
-            <div style="background:var(--sidebar-bg); border:1px dashed var(--border); border-radius:8px; padding:36px 20px; text-align:center;">
-              <p style="font-size:24px; margin-bottom:8px;">📭</p>
-              <p style="font-size:13.5px; font-weight:600; color:var(--text);">今日暂无新审核发布的通知</p>
-              <p style="font-size:12px; color:var(--text-3); margin-top:4px;">后台抓取池每 6 小时自动巡检官网，有最新通知经审核后会在此第一时间呈现。</p>
-            </div>
-          `;
-        }
-        return;
-      }
-
-      if (feedContainer) {
-        feedContainer.innerHTML = feeds
-          .map((f) => `
-            <div class="news-card">
-              <div class="news-card-head">
-                <span class="tag tag-dept">🏛️ ${esc(f.source_name || f.source || '官方发布')}</span>
-                <span style="font-size:11px; color:var(--text-muted);">${f.pub_date || '近期发布'}</span>
-              </div>
-              <h3 class="news-card-title">${esc(f.title)}</h3>
-              ${f.summary ? `<div class="news-card-summary">${esc(f.summary)}</div>` : ''}
-              <div class="news-card-foot">
-                <span>审核发布于 ${new Date(f.published_at || f.created_at).toLocaleDateString()}</span>
-                <a href="${esc(f.source_url || f.link || '#')}" target="_blank" rel="noopener" style="font-weight:500; font-size:12px;">
-                  查看官方通知原文 ↗
-                </a>
-              </div>
-            </div>
-          `)
-          .join('');
-      }
-    } catch (err) {
-      if (feedContainer) {
-        feedContainer.innerHTML = `<div style="color:var(--pri-high); text-align:center; padding:20px 0;">拉取动态失败：${esc(err.message)}</div>`;
-      }
-    }
-  }
-
-  function renderMainContent(item) {
-    if (!docArticleEl) return;
-
-    if (currentCat === 'news') {
-      renderNewsFeedView();
-      return;
-    }
-
-    if (!item) {
-      docArticleEl.style.display = 'none';
-      if (emptyStateEl) emptyStateEl.style.display = 'block';
-      return;
-    }
-
-    docArticleEl.style.display = 'block';
-    if (emptyStateEl) emptyStateEl.style.display = 'none';
-
-    const c = catMap[item.cat] || { name: item.cat };
-
-    // 步骤卡片流
-    let stepsHtml = '';
-    if (item.steps && item.steps.length) {
-      const stepItems = item.steps
-        .map((s, idx) => `
-          <div class="step-card">
-            <span class="step-num">${idx + 1}</span>
-            <span>${esc(s)}</span>
-          </div>`)
-        .join('');
-      stepsHtml = `
-        <h2 class="section-h2">办理流程与具体步骤</h2>
-        <div class="steps-list">${stepItems}</div>`;
-    }
-
-    // 数据表
-    let tableHtml = '';
-    if (item.table && item.table.rows) {
-      const ths = (item.table.headers || []).map((h) => `<th>${esc(h)}</th>`).join('');
-      const trs = item.table.rows
-        .map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
-        .join('');
-      const tableTitle = (item.table.title || '').trim() || '相关数据与明细标准';
-      tableHtml = `
-        <h2 class="section-h2">${esc(tableTitle)}</h2>
-        <table class="meta-table">
-          <thead><tr>${ths}</tr></thead>
-          <tbody>${trs}</tbody>
-        </table>`;
-    }
-
-    // 结构化正文 Sections
-    let sectionsHtml = '';
-    if (item.sections && item.sections.length) {
-      sectionsHtml = item.sections
-        .map((sec, idx) => {
-          const inner = [];
-          if (sec.lead) inner.push(`<p style="font-size:13px; color:var(--text); font-weight:500;">${esc(sec.lead)}</p>`);
-          if (sec.body) inner.push(`<p style="font-size:13px; color:var(--text-2); line-height:1.65;">${esc(sec.body)}</p>`);
-          if (sec.bullet && sec.bullet.length) {
-            inner.push(`<ul style="font-size:13px; color:var(--text-2); padding-left:20px;">${sec.bullet.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`);
-          }
-          return `
-            <h2 class="section-h2">${esc(sec.title || '要点说明 ' + (idx + 1))}</h2>
-            <div>${inner.join('')}</div>`;
-        })
-        .join('');
-    } else if (item.body) {
-      sectionsHtml = `
-        <h2 class="section-h2">政策详细解读</h2>
-        <p style="font-size:13.5px; color:var(--text-2); line-height:1.7;">${esc(item.body)}</p>`;
-    }
-
-    // 键值属性表 (KV Table) — 值为空或「—」的行自动隐藏
-    const isEmpty = (v) => {
-      if (v === null || v === undefined) return true;
-      const s = String(v).trim();
-      return s === '' || s === '—' || s === '-';
-    };
-
-    const metaList = [
-      ['适用对象', item.object],
-      ['关键时间', item.time],
-      ['负责部门', item.dept],
-      ['联系电话', item.phone ? `<a href="tel:${esc(item.phone)}">${esc(item.phone)}</a>` : '—'],
-      ['办理地点', item.place || '—'],
-      ['所需材料', item.material || '—'],
-    ];
-
-    const metaRows = metaList
-      .filter(([, v]) => !isEmpty(v))
-      .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`)
-      .join('');
-
-    // 是否包含「办理地点 / 所需材料」（用于 KV 表标题自适应）
-    const hasPlaceOrMaterial = !isEmpty(item.place) || !isEmpty(item.material);
-
-    // 注意事项 Warning Box
-    const notesHtml = item.notes
-      ? `<div class="warning-box"><b>⚠️ 注意事项与提示：</b>${esc(item.notes)}</div>`
-      : '';
-
-    docArticleEl.innerHTML = `
-      <!-- 面包屑 -->
-      <nav class="breadcrumb">
-        <a href="#/section/${esc(item.cat)}">${esc(c.name)}</a>
-        <span class="sep">/</span>
-        <span style="color:var(--text); font-weight:500;">${esc(item.title)}</span>
-      </nav>
-
-      <!-- 文档头 -->
-      <div class="doc-header">
-        <h1 class="doc-title">${esc(item.title)}</h1>
-        <div class="doc-meta-row">
-          <span class="tag ${priClass(item.priority)}">${esc(item.priority)}优先级</span>
-          <span class="tag tag-dept">${esc(item.dept || '学校职能部门')}</span>
-          <span class="tag" style="background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0;">已核实</span>
-          <span>${item.date ? '发布于 ' + esc(item.date) : '以官方最新通知为准'}</span>
-        </div>
-      </div>
-
-      <!-- Callout 核心摘要 -->
-      <div class="callout-summary">
-        <div class="callout-title">💡 政策核心摘要</div>
-        <div class="callout-body">${esc(item.summary)}</div>
-      </div>
-
-      <!-- 办理流程 -->
-      ${stepsHtml}
-
-      <!-- 数据表 -->
-      ${tableHtml}
-
-      <!-- 详细解读 -->
-      ${sectionsHtml}
-
-      <!-- 办事材料与联系方式表格 -->
-      <h2 class="section-h2">${hasPlaceOrMaterial ? '办事凭证与联系信息' : '关键信息与联系部门'}</h2>
-      <table class="meta-table">
-        <tbody>${metaRows}</tbody>
-      </table>
-
-      <!-- 注意事项 -->
-      ${notesHtml}
-
-      <!-- 底部互动与纠错反馈条 -->
-      <div class="doc-footer-action">
-        <button class="btn-like" id="btn-like-${esc(item.slug)}" onclick="handleLikeClick('${esc(item.slug)}')">
-          ❤️ 政策有用 (<span id="like-count-${esc(item.slug)}">0</span>)
-        </button>
-        <div style="display:flex; align-items:center; gap:12px;">
-          <a href="${esc(item.url)}" target="_blank" rel="noopener" style="font-size:12px; color:var(--text-3);">
-            查看官方原文 ↗
-          </a>
-          <button class="btn btn-outline btn-sm" onclick="openFeedbackModal('${esc(item.slug)}', '${esc(item.title)}')">
-            🚩 纠错与失效反馈
-          </button>
-        </div>
-      </div>
-    `;
-
-    // 重新拉取当前事项的点赞数据
-    loadLikes(item.slug);
-  }
-
-  // ---------- 3. 右侧栏评论与避坑互动联动 ----------
-  async function loadLikes(slug) {
-    if (!window.Api || !window.Api.isConfigured()) return;
-    const { count, hasLiked } = await window.Api.getLikes(slug);
-    const btn = document.getElementById('btn-like-' + slug);
-    const countEl = document.getElementById('like-count-' + slug);
-    if (btn && countEl) {
-      countEl.textContent = count;
-      if (hasLiked) btn.classList.add('liked');
-      else btn.classList.remove('liked');
-    }
-  }
-
-  async function loadComments(slug) {
-    if (!commentFeedEl) return;
-
-    if (!window.Api || !window.Api.isConfigured()) {
-      commentFeedEl.innerHTML = `
-        <div style="font-size:12px; color:var(--text-muted); text-align:center; padding:30px 10px;">
-          暂未配置云端存储，配置 Supabase 后即可开启实时避坑交流。
-        </div>`;
-      if (commentCountBadge) commentCountBadge.textContent = '0条';
-      return;
-    }
-
-    try {
-      const comments = await window.Api.getComments(slug);
-      if (commentCountBadge) {
-        commentCountBadge.textContent = `${comments.length}条`;
-      }
-
-      if (!comments.length) {
-        commentFeedEl.innerHTML = `
-          <div style="font-size:12px; color:var(--text-muted); text-align:center; padding:30px 10px; background:var(--sidebar-bg); border-radius:6px; border:1px dashed var(--border);">
-            暂无同学避坑留言，来发表第一条经验或提问吧～
-          </div>`;
-        return;
-      }
-
-      commentFeedEl.innerHTML = comments
-        .map((c) => {
-          const avatarChar = (c.user_name || '学').slice(0, 1);
-          const repliesHtml = (c.replies && c.replies.length > 0)
-            ? `<div class="comment-replies">
-                ${c.replies.map((r) => `
-                  <div class="reply-item">
-                    <span class="reply-user">${esc(r.user_name)}</span>
-                    ${r.reply_to_name ? `<span style="color:var(--text-muted);">回复 @${esc(r.reply_to_name)}</span>` : ''}：
-                    <span>${esc(r.content)}</span>
-                  </div>
-                `).join('')}
-              </div>`
-            : '';
-
-          return `
-            <div class="comment-card" id="comment-${c.id}">
-              <div class="comment-user-row">
-                <div class="comment-avatar">${esc(avatarChar)}</div>
-                <span class="comment-username">${esc(c.user_name)}</span>
-                <span class="comment-time">${new Date(c.created_at).toLocaleDateString()}</span>
-              </div>
-              <div class="comment-body-text">${esc(c.content)}</div>
-              <div class="comment-actions">
-                <button class="comment-act-btn ${c.has_liked ? 'liked' : ''}" id="btn-c-like-${c.id}" onclick="handleCommentLike('${c.id}', '${slug}')">
-                  👍 <span id="c-like-cnt-${c.id}">${c.like_count || 0}</span>
-                </button>
-                <button class="comment-act-btn" onclick="toggleReplyBox('${c.id}', '${esc(c.user_name)}')">
-                  💬 回复
-                </button>
-              </div>
-
-              <!-- 行内回复框 -->
-              <div class="inline-reply-box" id="reply-box-${c.id}" style="display:none; margin-top:8px;">
-                <textarea id="reply-input-${c.id}" rows="2" style="width:100%; font-size:12px; padding:6px; border:1px solid var(--border); border-radius:4px;" placeholder="写下你的回复..."></textarea>
-                <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:4px;">
-                  <button class="btn btn-outline btn-sm" onclick="toggleReplyBox('${c.id}')">取消</button>
-                  <button class="btn btn-primary btn-sm" id="btn-send-reply-${c.id}" onclick="handleReplySubmit('${slug}', '${c.id}', '${esc(c.user_name)}')">发送</button>
-                </div>
-              </div>
-
-              <!-- 嵌套子回复 -->
-              ${repliesHtml}
-            </div>`;
-        })
-        .join('');
-    } catch (err) {
-      console.error('加载评论失败', err);
-      commentFeedEl.innerHTML = `<div style="font-size:12px; color:var(--pri-high); text-align:center;">评论加载失败</div>`;
-    }
-  }
-
-  // 提交主评论（匿名模式：免登录）
-  window.handleCurrentCommentSubmit = async function () {
-    if (!commentInputEl) return;
-    const content = commentInputEl.value.trim();
-    if (!content) return;
-
-    const btn = document.getElementById('btn-post-comment');
-    try {
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = '发送中...';
-      }
-
-      const userName = getUserDisplayName();
-      await window.Api.postComment(currentSlug, userName, content);
-      commentInputEl.value = '';
-      alert('评论已提交，审核通过后将在页面显示。');
-    } catch (err) {
-      alert(err.message || '发表失败，请重试');
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '发表';
-      }
-    }
-  };
-
-  window.handleLikeClick = async function (slug) {
-    try {
-      const btn = document.getElementById('btn-like-' + slug);
-      const res = await window.Api.toggleLike(slug);
-      const countEl = document.getElementById('like-count-' + slug);
-      let count = parseInt(countEl.textContent || '0', 10);
-
-      if (res.unchanged) {
-        if (btn) btn.classList.add('liked');
-        return;
-      }
-      if (res.action === 'liked') {
-        if (btn) btn.classList.add('liked');
-        if (countEl) countEl.textContent = count + 1;
-      } else {
-        if (btn) btn.classList.remove('liked');
-        if (countEl) countEl.textContent = Math.max(0, count - 1);
-      }
-    } catch (err) {
-      alert(err.message || '点赞失败');
-    }
-  };
-
-  window.handleCommentLike = async function (commentId, slug) {
-    try {
-      const btn = document.getElementById('btn-c-like-' + commentId);
-      const countEl = document.getElementById('c-like-cnt-' + commentId);
-      const res = await window.Api.toggleCommentLike(commentId);
-      let count = parseInt(countEl.textContent || '0', 10);
-
-      if (res.unchanged) {
-        if (btn) btn.classList.add('liked');
-        return;
-      }
-      if (res.action === 'liked') {
-        if (btn) btn.classList.add('liked');
-        if (countEl) countEl.textContent = count + 1;
-      } else {
-        if (btn) btn.classList.remove('liked');
-        if (countEl) countEl.textContent = Math.max(0, count - 1);
-      }
-    } catch (err) {
-      alert(err.message || '评论点赞失败');
-    }
-  };
-
-  window.toggleReplyBox = function (commentId, targetUserName) {
-    const box = document.getElementById('reply-box-' + commentId);
-    if (!box) return;
-
-    const isHidden = box.style.display === 'none' || !box.style.display;
-    document.querySelectorAll('.inline-reply-box').forEach((el) => {
-      el.style.display = 'none';
-    });
-
-    if (isHidden) {
-      box.style.display = 'block';
-      const input = document.getElementById('reply-input-' + commentId);
-      if (input) {
-        input.placeholder = `回复 @${targetUserName} ...`;
-        input.focus();
-      }
-    } else {
-      box.style.display = 'none';
-    }
-  };
-
-  window.handleReplySubmit = async function (slug, parentId, targetUserName) {
-    const input = document.getElementById('reply-input-' + parentId);
-    const content = input.value.trim();
-    if (!content) {
-      alert('回复内容不能为空');
-      return;
-    }
-
-    const btn = document.getElementById('btn-send-reply-' + parentId);
-    try {
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = '发送中...';
-      }
-      const userName = getUserDisplayName();
-      await window.Api.postComment(slug, userName, content, parentId, targetUserName);
-      input.value = '';
-      const box = document.getElementById('reply-box-' + parentId);
-      if (box) box.style.display = 'none';
-      alert('回复已提交，审核通过后将在页面显示。');
-    } catch (err) {
-      alert(err.message || '回复失败');
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '发送';
-      }
-    }
-  };
-
-  // ---------- 4. 官方渠道卡片渲染 ----------
-  function renderOfficialLinks() {
-    if (!officialLinksGrid) return;
-    officialLinksGrid.innerHTML = LINKS.map(
-      (l) => `
-      <a class="link-card" href="${esc(l.url)}" target="_blank" rel="noopener">
-        <span class="link-name">${esc(l.name)}</span>
-        <span class="link-url">${esc(l.url.replace(/^https?:\/\//, ''))} ↗</span>
-      </a>`
-    ).join('');
-  }
-
-  // ---------- 5. Hash 路由与选中文档定位 ----------
   function syncRoute() {
-    const raw = location.hash.replace(/^#\/?/, '');
-    const parts = raw.split('/');
-
-    let foundItem = null;
-
-    if (raw === 'news' || parts[0] === 'news') {
-      // 路由命中 #/news【今日最新消息】
-      currentCat = 'news';
-      currentSlug = 'news';
-      renderTreeSidebar();
-      renderMainContent(null);
-      loadComments('news');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
+    const parts = raw.split('/').filter(Boolean);
+    if (!parts.length) { history.replaceState(null, '', '#/ai'); switchPage('ai', false); return; }
+    if (parts[0] === 'section') {
+      selectedCategory = parts[1] || 'all';
+      if (parts[2] === 'item' && parts[3]) location.replace(`#\/info\/${encodeURIComponent(parts[3])}`);
+      else location.replace('#/info');
       return;
     }
-
-    if (parts[0] === 'section' && parts[1]) {
-      currentCat = parts[1];
-      expandedCats.add(currentCat);
-      if (parts[2] === 'item' && parts[3]) {
-        currentSlug = parts[3];
-        foundItem = [...ITEMS, ...dynamicItems].find((i) => i.slug === currentSlug);
-      } else {
-        // 如果只选了分类，默认打开该分类下第一个事项（含动态条目）
-        foundItem = [...ITEMS, ...dynamicItems].find((i) => i.cat === currentCat);
-        if (foundItem) currentSlug = foundItem.slug;
-      }
-    } else if (raw) {
-      // 尝试直接匹配 slug（含动态条目）
-      foundItem = [...ITEMS, ...dynamicItems].find((i) => i.slug === raw);
-      if (foundItem) {
-        currentSlug = foundItem.slug;
-        currentCat = foundItem.cat;
-        expandedCats.add(currentCat);
-      }
+    const page = pageNames.has(parts[0]) ? parts[0] : allItems().some((item) => item.slug === parts[0]) ? 'info' : 'ai';
+    switchPage(page, parts.length === 1);
+    if (page === 'info') {
+      const slug = parts[1] || (!pageNames.has(parts[0]) ? parts[0] : '');
+      const item = slug ? allItems().find((entry) => entry.slug === slug) : null;
+      if (item) renderInfoDetail(item); else showInfoHome();
     }
-
-    if (!foundItem) {
-      // 兜底打开第一个条目
-      foundItem = ITEMS[0];
-      if (foundItem) {
-        currentSlug = foundItem.slug;
-        currentCat = foundItem.cat;
-        expandedCats.add(currentCat);
-      }
-    }
-
-    renderTreeSidebar();
-    renderMainContent(foundItem);
-    loadComments(currentSlug);
-
-    // 滚动到正文顶部
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (parts.length > 1) window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
-  // ---------- 6. 全局搜索与快捷键绑定 ----------
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      query = e.target.value.trim();
-      renderTreeSidebar();
-
-      // 如果有搜索结果，自动展开所有分类并选中第一个匹配项（含动态条目）
-      if (query) {
-        const matched = [...ITEMS, ...dynamicItems].filter((item) => {
-          const hay = [item.title, item.summary, item.dept, item.object].join(' ').toLowerCase();
-          return hay.includes(query.toLowerCase());
-        });
-        if (matched.length > 0) {
-          currentSlug = matched[0].slug;
-          currentCat = matched[0].cat;
-          expandedCats.add(currentCat);
-          renderMainContent(matched[0]);
-          loadComments(currentSlug);
-        } else {
-          renderMainContent(null);
-        }
-      } else {
-        syncRoute();
-      }
-    });
-  }
-
-  // ---------- 6.5 动态内容拉取（后台审核发布到常规分类的实时合并） ----------
   async function loadDynamicItems() {
-    if (!window.Api || !window.Api.isConfigured()) return;
+    if (!window.Api?.isConfigured()) return;
     try {
       const feeds = await window.Api.getPublishedFeeds('all', 100);
-      // 过滤出存在有效分类的已发布内容（news 已经单独在今日最新消息展示）
-      const validCats = new Set(CATEGORIES.map((c) => c.id));
-      dynamicItems = (feeds || [])
-        .filter((f) => f.cat && validCats.has(f.cat))
-        .map((f) => window.Api.feedToItem(f));
-      renderTreeSidebar();
-      // 若当前正是动态条目，则重新渲染正文
-      if (currentSlug && dynamicItems.some((i) => i.slug === currentSlug)) {
-        const cur = dynamicItems.find((i) => i.slug === currentSlug);
-        renderMainContent(cur);
-      }
-    } catch (err) {
-      console.warn('拉取动态分类内容失败:', err);
-    }
+      const valid = new Set(CATEGORIES.map((category) => category.id));
+      dynamicItems = (feeds || []).filter((feed) => valid.has(feed.cat)).map((feed) => window.Api.feedToItem(feed));
+      renderCategoryGrid(); renderInfoList(); syncRoute();
+    } catch (error) { console.warn('动态校园信息加载失败', error); }
   }
 
-  // 快捷键 Ctrl + K 唤起搜索框
-  document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-      e.preventDefault();
-      if (searchInput) {
-        searchInput.focus();
-        searchInput.select();
-      }
-    }
+  categoryGrid?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-category]');
+    if (button) selectCategory(button.dataset.category);
   });
-
-  // ---------- 7. 初始化启动 ----------
+  searchInput?.addEventListener('input', (event) => {
+    searchQuery = event.target.value.trim();
+    if (searchQuery) selectedCategory = 'all';
+    renderCategoryGrid();
+    renderInfoList();
+  });
+  bookmarkButton?.addEventListener('click', toggleBookmark);
+  document.getElementById('detail-back')?.addEventListener('click', () => { location.hash = '#/info'; });
+  document.getElementById('mark-news-read')?.addEventListener('click', markAllNewsRead);
+  document.getElementById('news-filters')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-filter]');
+    if (!button) return;
+    newsFilter = button.dataset.filter;
+    document.querySelectorAll('#news-filters button').forEach((item) => item.classList.toggle('is-active', item === button));
+    renderNews();
+  });
+  document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault(); location.hash = '#/info'; setTimeout(() => searchInput?.focus(), 80);
+    }
+    if (event.key === 'Escape') document.querySelectorAll('.modal-overlay').forEach((modal) => { if (modal.style.display !== 'none') hideModal(modal.id); });
+  });
+  document.querySelectorAll('.modal-overlay').forEach((modal) => modal.addEventListener('click', (event) => { if (event.target === modal) hideModal(modal.id); }));
   window.addEventListener('hashchange', syncRoute);
 
+  renderCategoryGrid();
+  renderInfoList();
   renderOfficialLinks();
-  initAuth();
-  loadDynamicItems(); // 拉取后台发布的动态分类内容
+  renderMyPage();
   syncRoute();
+  loadDynamicItems();
+  loadNews();
 })();

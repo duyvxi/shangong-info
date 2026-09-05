@@ -35,12 +35,15 @@ shangong-info/
 ├── index.html            # 学生主站（单页应用，hash 路由）
 ├── admin.html            # 管理后台 & 数据驾驶舱
 ├── css/style.css         # 全站样式
+├── css/mobile-app.css    # 移动端四板块与底部导航样式
 ├── js/
 │   ├── data.js           # 站点内容数据（45+ 条已核实政策/攻略）
 │   ├── api.js            # Supabase 统一 API 层
 │   └── app.js            # 主站渲染与交互
 ├── scripts/
+│   ├── dev-server.mjs    # 无依赖的本地预览服务
 │   └── fetch_feeds.py    # 自动抓取脚本（官网/教务处/学生处）
+├── 启动本地预览.cmd      # Windows 一键预览入口
 ├── .github/workflows/
 │   └── fetch-content.yml # 每 6 小时定时抓取
 ├── supabase-schema.sql   # 数据库基础建表脚本
@@ -49,13 +52,20 @@ shangong-info/
 
 ## 快速开始（本地预览）
 
-直接用浏览器打开 `index.html` 即可（纯静态，无构建步骤）。
-推荐起个本地静态服务器：
+Windows 下双击项目根目录的 `启动本地预览.cmd`，脚本会启动本地服务并自动打开：
+
+```text
+http://127.0.0.1:4173/#/ai
+```
+
+预览期间请保持命令窗口开启，结束时在该窗口按 `Ctrl+C`。
+
+不要直接双击 `index.html`。`file://` 页面没有正常的网站来源，浏览器会阻止它调用 Supabase AI 接口。
+
+也可以手动启动本地静态服务器：
 
 ```bash
-# Python 方式
-python -m http.server 8080
-# 然后访问 http://localhost:8080
+node scripts/dev-server.mjs
 ```
 
 ## 部署到 GitHub Pages（三步）
