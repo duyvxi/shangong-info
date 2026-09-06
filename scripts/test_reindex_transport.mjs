@@ -25,6 +25,12 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === 'GET' && requestUrl.pathname === '/rest/v1/knowledge_chunks') {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end('[]');
+    return;
+  }
+
   if (request.method === 'POST' && requestUrl.pathname === '/embeddings') {
     let body = '';
     for await (const part of request) body += part;

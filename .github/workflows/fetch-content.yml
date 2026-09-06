@@ -1,13 +1,22 @@
-# 内容自动抓取 - 定时工作流
-# 每 6 小时运行一次 scripts/fetch_feeds.py，将抓取的官网新条目写入 Supabase 待审表。
+# 内容与 AI 知识自动抓取 - 定时工作流
+# 每 6 小时检查最新消息；AI 知识来源按照数据库中的抓取间隔运行。
 # 需预先在仓库 Settings -> Secrets 配置：
-#   SUPABASE_URL / SUPABASE_SECRET_KEY
+#   SUPABASE_URL / SUPABASE_SECRET_KEY / AI_EMBEDDING_API_KEY
 name: 抓取校园新内容
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # 每 6 小时一次（可改，如 每天两次: '0 1,13 * * *'）
-  workflow_dispatch: {}       # 允许在 GitHub 页面手动触发
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 忽略来源间隔，立即检查全部已启用来源
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
 
 concurrency:
   group: content-fetch
@@ -16,6 +25,7 @@ concurrency:
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -26,16 +36,38 @@ jobs:
       - name: 安装依赖
         run: pip install requests beautifulsoup4 supabase
 
-      - name: 运行抓取脚本
+      - name: 检查官网正文提取规则
+        run: python scripts/test_crawl_knowledge.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 抓取最新消息列表
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: python scripts/fetch_feeds.py
 
-      - name: 提交数据文件（新抓取的条目与去重指纹会写回仓库，便于人工审核与部署）
+      - name: 抓取 AI 官方知识（默认进入待审核）
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          CRAWL_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
+        run: python scripts/crawl_knowledge.py
+
+      - name: 为已审核知识补充向量
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          AI_EMBEDDING_API_KEY: ${{ secrets.AI_EMBEDDING_API_KEY }}
+          AI_EMBEDDING_API_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+          AI_EMBEDDING_MODEL: text-embedding-v4
+          AI_EMBEDDING_DIMENSIONS: '1024'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "feeds: 自动抓取校园新内容" || echo "无变更，跳过提交"
-          git push
+          if [ -z "$AI_EMBEDDING_API_KEY" ]; then
+            echo "未配置 AI_EMBEDDING_API_KEY，跳过向量补充。"
+            exit 0
+          fi
+          node scripts/reindex_knowledge.mjs

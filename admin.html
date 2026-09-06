@@ -296,6 +296,19 @@
           <thead><tr><th>来源</th><th>域名</th><th>默认分类</th><th>采集状态</th><th>最后采集</th><th>操作</th></tr></thead>
           <tbody id="tbl-knowledge-sources"><tr><td colspan="6" style="text-align:center;">数据加载中...</td></tr></tbody>
         </table>
+
+        <h3 style="margin-top:28px;">📝 官网知识审核</h3>
+        <p class="knowledge-note">自动采集的新页面和发生变化的页面会先进入“待审核”。请打开原文核对标题、日期和正文后再发布；发布后下一次自动任务会补齐语义向量。</p>
+        <table class="admin-table">
+          <thead><tr><th>状态</th><th>标题</th><th>分类</th><th>发布日期</th><th>来源</th><th>更新时间</th><th>操作</th></tr></thead>
+          <tbody id="tbl-knowledge-documents"><tr><td colspan="7" style="text-align:center;">数据加载中...</td></tr></tbody>
+        </table>
+
+        <h3 style="margin-top:28px;">🕒 最近采集任务</h3>
+        <table class="admin-table">
+          <thead><tr><th>来源</th><th>状态</th><th>扫描</th><th>新增</th><th>更新</th><th>失败</th><th>开始时间</th><th>错误摘要</th></tr></thead>
+          <tbody id="tbl-crawl-jobs"><tr><td colspan="8" style="text-align:center;">数据加载中...</td></tr></tbody>
+        </table>
       </div>
     </div>
 
@@ -355,7 +368,7 @@
   </div>
 
   <script src="js/data.js"></script>
-  <script src="js/api.js?v=20260905-1"></script>
+  <script src="js/api.js?v=20260906-1"></script>
   <script>
     function escapeHtml(value) {
       return String(value == null ? '' : value).replace(/[&<>'"]/g, (char) => ({
@@ -688,7 +701,66 @@
         document.getElementById('tbl-knowledge-sources').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">第二阶段数据库尚未安装：${escapeHtml(err.message)}</td></tr>`;
       }
 
-      // 8. AI 未回答问题
+      // 8. 官网知识审核
+      try {
+        const documents = await window.Api.getKnowledgeDocuments({ status: 'all', limit: 100 });
+        const documentBody = document.getElementById('tbl-knowledge-documents');
+        if (!documents.length) {
+          documentBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">尚未采集到官网知识，首次运行 GitHub Actions 后会显示在这里</td></tr>';
+        } else {
+          const statusLabels = { draft: '待审核', published: '已发布', archived: '已归档' };
+          documentBody.innerHTML = documents.map(document => {
+            const sourceUrl = safeExternalUrl(document.canonical_url || document.source_url);
+            const sourceName = document.metadata?.source_name || '学校官网';
+            const actions = document.status === 'draft'
+              ? `<button class="btn-action btn-success" onclick="reviewKnowledgeDocument('${document.id}', 'published')">审核发布</button>
+                 <button class="btn-action btn-danger" onclick="reviewKnowledgeDocument('${document.id}', 'archived')">忽略</button>`
+              : document.status === 'published'
+              ? `<button class="btn-action" onclick="reviewKnowledgeDocument('${document.id}', 'draft')">退回待审</button>
+                 <button class="btn-action btn-danger" onclick="reviewKnowledgeDocument('${document.id}', 'archived')">归档</button>`
+              : `<button class="btn-action" onclick="reviewKnowledgeDocument('${document.id}', 'draft')">恢复待审</button>`;
+            return `
+              <tr>
+                <td><span class="badge-status ${document.status === 'published' ? 'badge-active' : document.status === 'archived' ? 'badge-banned' : 'badge-todo'}">${escapeHtml(statusLabels[document.status] || document.status)}</span></td>
+                <td style="max-width:360px;"><b>${escapeHtml(document.title)}</b><br><small>${escapeHtml(document.summary || '').slice(0, 120)}</small></td>
+                <td><span class="tag">${escapeHtml(document.category || '校园服务')}</span></td>
+                <td>${escapeHtml(document.source_date || '未识别')}</td>
+                <td><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceName)} →</a></td>
+                <td>${document.updated_at ? new Date(document.updated_at).toLocaleString() : '-'}</td>
+                <td style="white-space:nowrap;">${actions}</td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-knowledge-documents').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">知识审核列表加载失败：${escapeHtml(err.message)}</td></tr>`;
+      }
+
+      // 9. 最近采集任务
+      try {
+        const jobs = await window.Api.getCrawlJobs(30);
+        const jobsBody = document.getElementById('tbl-crawl-jobs');
+        if (!jobs.length) {
+          jobsBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;">暂无采集任务记录</td></tr>';
+        } else {
+          jobsBody.innerHTML = jobs.map(job => `
+            <tr>
+              <td>${escapeHtml(job.knowledge_sources?.name || '来源已删除')}</td>
+              <td><span class="badge-status ${job.status === 'succeeded' ? 'badge-active' : job.status === 'failed' ? 'badge-banned' : 'badge-todo'}">${escapeHtml(job.status)}</span></td>
+              <td>${Number(job.pages_scanned) || 0}</td>
+              <td>${Number(job.pages_added) || 0}</td>
+              <td>${Number(job.pages_updated) || 0}</td>
+              <td>${Number(job.pages_failed) || 0}</td>
+              <td>${job.started_at ? new Date(job.started_at).toLocaleString() : '-'}</td>
+              <td style="max-width:300px;word-break:break-word;">${escapeHtml(job.error_summary || '-')}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-crawl-jobs').innerHTML = `<tr><td colspan="8" style="text-align:center;color:#dc2626;">任务记录加载失败：${escapeHtml(err.message)}</td></tr>`;
+      }
+
+      // 10. AI 未回答问题
       try {
         const questions = await window.Api.getUnansweredQuestions({ status: 'all' });
         const questionBody = document.getElementById('tbl-unanswered-questions');
@@ -912,6 +984,20 @@
         await loadAllAdminData();
       } catch (err) {
         alert(`${action}失败：${err.message}`);
+      }
+    }
+
+    async function reviewKnowledgeDocument(documentId, status) {
+      const labels = { draft: '退回待审核', published: '审核并发布', archived: '归档/忽略' };
+      const extra = status === 'published'
+        ? '发布后 AI 可以检索该内容，语义向量将在下一次自动任务中补齐。'
+        : '该内容将不会用于 AI 回答。';
+      if (!confirm(`确认${labels[status] || status}这条官网知识吗？${extra}`)) return;
+      try {
+        await window.Api.updateKnowledgeDocumentStatus(documentId, status);
+        await loadAllAdminData();
+      } catch (err) {
+        alert('知识审核失败：' + err.message);
       }
     }
 

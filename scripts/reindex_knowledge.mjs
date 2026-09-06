@@ -1,4 +1,4 @@
-import { chunkDocument } from './knowledge-chunking.mjs';
+import { chunkDocument, contentHash } from './knowledge-chunking.mjs';
 
 const projectUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const secretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -90,15 +90,42 @@ for (const document of documents || []) {
     continue;
   }
 
+  const existingChunks = await supabaseRequest(
+    `knowledge_chunks?select=chunk_index,content_hash,embedding_model,embedding_status&document_id=eq.${encodeURIComponent(document.id)}&order=chunk_index.asc`
+  );
+  const existingByIndex = new Map((existingChunks || []).map((chunk) => [chunk.chunk_index, chunk]));
+  const preparedChunks = chunks.map((chunk) => {
+    const embeddingInput = `${document.title}\n分类：${document.category}\n${chunk.content}`;
+    return {
+      ...chunk,
+      embeddingInput,
+      content_hash: contentHash(embeddingInput),
+    };
+  });
+  const pendingChunks = preparedChunks.filter((chunk) => {
+    const existing = existingByIndex.get(chunk.chunk_index);
+    return !existing
+      || existing.content_hash !== chunk.content_hash
+      || existing.embedding_model !== embeddingModel
+      || existing.embedding_status !== 'ready';
+  });
+  const hasExtraChunks = (existingChunks || []).some((chunk) => chunk.chunk_index >= chunks.length);
+  if (!pendingChunks.length && !hasExtraChunks) {
+    completedDocuments += 1;
+    console.log(`[skip] ${document.slug}: ${chunks.length} 个切片均为最新`);
+    continue;
+  }
+
   const chunkRows = [];
-  for (let index = 0; index < chunks.length; index += 10) {
-    const batch = chunks.slice(index, index + 10);
-    const inputs = batch.map((chunk) => `${document.title}\n分类：${document.category}\n${chunk.content}`);
+  for (let index = 0; index < pendingChunks.length; index += 10) {
+    const batch = pendingChunks.slice(index, index + 10);
+    const inputs = batch.map((chunk) => chunk.embeddingInput);
     const vectors = await createEmbeddings(inputs);
     batch.forEach((chunk, offset) => {
+      const { embeddingInput: _, ...storedChunk } = chunk;
       chunkRows.push({
         document_id: document.id,
-        ...chunk,
+        ...storedChunk,
         embedding: vectors[offset],
         embedding_model: embeddingModel,
         embedding_status: 'ready',
@@ -125,7 +152,7 @@ for (const document of documents || []) {
     headers: { Prefer: 'return=minimal' },
   });
   completedDocuments += 1;
-  console.log(`[ready] ${document.slug}: ${chunks.length} 个切片`);
+  console.log(`[ready] ${document.slug}: ${chunks.length} 个切片，本次生成 ${pendingChunks.length} 个向量`);
 }
 
 console.log(dryRun

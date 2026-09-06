@@ -802,6 +802,38 @@ const Api = {
     return true;
   },
 
+  async getKnowledgeDocuments({ limit = 100, status = 'all' } = {}) {
+    if (!this.isConfigured() || !supabaseClient) return [];
+    let query = supabaseClient
+      .from('knowledge_documents')
+      .select('id,title,category,summary,canonical_url,source_url,source_date,status,source_type,last_crawled_at,updated_at,metadata')
+      .eq('source_type', 'official_notice')
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+    if (status && status !== 'all') query = query.eq('status', status);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  },
+
+  async updateKnowledgeDocumentStatus(documentId, status) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('请先配置 Supabase 后端凭证');
+    if (!['draft', 'published', 'archived'].includes(status)) throw new Error('无效的知识审核状态');
+    const now = new Date().toISOString();
+    const payload = {
+      status,
+      verified_at: status === 'published' ? now : null,
+      updated_at: now,
+    };
+    const { error } = await supabaseClient
+      .from('knowledge_documents')
+      .update(payload)
+      .eq('id', documentId)
+      .eq('source_type', 'official_notice');
+    if (error) throw error;
+    return true;
+  },
+
   async getUnansweredQuestions({ limit = 100, status = 'open' } = {}) {
     if (!this.isConfigured() || !supabaseClient) return [];
     let query = supabaseClient
@@ -853,7 +885,7 @@ const Api = {
     if (!this.isConfigured() || !supabaseClient) return [];
     const { data, error } = await supabaseClient
       .from('crawl_jobs')
-      .select('id,source_id,status,pages_scanned,pages_added,pages_updated,pages_failed,error_summary,started_at,finished_at,created_at')
+      .select('id,source_id,status,pages_scanned,pages_added,pages_updated,pages_failed,error_summary,started_at,finished_at,created_at,knowledge_sources(name)')
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;

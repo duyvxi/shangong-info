@@ -8,7 +8,7 @@
 - 👤 账号体系：手机号/账号 + 密码自主注册（Supabase Auth，零短信成本）
 - ❤️ 互动：事项点赞、评论、**楼中楼回复**、评论点赞、纠错反馈、学生投稿
 - 📊 数据驾驶舱（`admin.html`）：注册用户管理、评论审查、纠错处理、投稿审核、Top10 热门榜、搜索热词缺口分析
-- 🆕 **内容自动更新**：GitHub Actions 每 6 小时抓取官网/教务处/学生处新通知 → 人工审核 → 一键发布
+- 🆕 **内容自动更新**：GitHub Actions 定时抓取官网通知与 AI 知识正文 → 人工审核 → 增量生成向量
 
 ## 技术栈
 
@@ -44,6 +44,7 @@ shangong-info/
 │   ├── dev-server.mjs    # 无依赖的本地预览服务
 │   ├── knowledge-chunking.mjs # 知识切片工具
 │   ├── reindex_knowledge.mjs  # 向量重建脚本
+│   ├── crawl_knowledge.py     # 官网 AI 知识正文安全采集
 │   └── fetch_feeds.py    # 自动抓取脚本（官网/教务处/学生处）
 ├── 启动本地预览.cmd      # Windows 一键预览入口
 ├── .github/workflows/
@@ -51,6 +52,7 @@ shangong-info/
 ├── supabase-schema.sql   # 数据库基础建表脚本
 ├── supabase-ai-phase1.sql # AI 第一阶段知识库与额度
 ├── supabase-ai-phase2.sql # AI 第二阶段向量与知识运营
+├── CRAWLER_SETUP.md       # 官网自动采集配置与审核说明
 └── supabase-security-phase2.sql # 管理员与 RLS 安全迁移（基础脚本后执行）
 ```
 
@@ -76,11 +78,13 @@ node scripts/dev-server.mjs
 
 1. 在 GitHub 新建仓库（如 `shangong-info`），按下方命令推送本项目；
 2. 仓库 `Settings → Pages` 选择 `main` 分支 `/root` 部署；
-3. 在 `Settings → Secrets and variables → Actions` 添加两个服务端密钥：
+3. 在 `Settings → Secrets and variables → Actions` 添加三个服务端密钥：
    - `SUPABASE_URL`：你的 Supabase Project URL
    - `SUPABASE_SECRET_KEY`：仅供 GitHub Actions 抓取任务使用的 Supabase Secret Key
+   - `AI_EMBEDDING_API_KEY`：百炼向量模型密钥
 
 推送后自动更新功能即随 GitHub Actions 每 6 小时运行一次。
+详细配置、审核和安全边界见 [`CRAWLER_SETUP.md`](CRAWLER_SETUP.md)。
 
 ## 数据来源（均为官方渠道）
 
