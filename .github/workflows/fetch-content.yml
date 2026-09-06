@@ -5,6 +5,12 @@
 name: 抓取校园新内容
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'knowledge/**'
+      - 'scripts/import_manual_knowledge.mjs'
+      - '.github/workflows/fetch-content.yml'
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
