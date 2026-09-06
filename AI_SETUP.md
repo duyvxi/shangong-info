@@ -43,7 +43,7 @@ node .\scripts\dev-server.mjs
 | `AI_PROVIDER` | 供应商简短名称，仅用于费用日志 |
 | `AI_RATE_LIMIT_SALT` | 至少 32 字节的随机字符串，只用于匿名额度哈希 |
 | `AI_REQUEST_LIMIT` | 每个匿名浏览器每小时额度，建议先填 `12` |
-| `AI_ALLOWED_ORIGINS` | `https://duyvxi.github.io,https://dgtzddf-2lxcnmk2.edgeone.cool`（多个正式域名用英文逗号分隔，不要加结尾 `/`；本机 localhost/127.0.0.1 的任意端口已自动允许） |
+| `AI_ALLOWED_ORIGINS` | `https://duyvxi.github.io,https://dgtzddf-2lxcnmk2.edgeone.cool,https://tgfhjvhcvasgdiusfgfsh-4egfid21.edgeone.cool`（多个正式域名用英文逗号分隔，不要加结尾 `/`；本机 localhost/127.0.0.1 的任意端口已自动允许） |
 | `AI_MODEL_TIMEOUT_MS` | 可选；等待模型的毫秒数，默认 `55000`，允许范围 `10000`～`90000` |
 | `AI_EMBEDDING_ENABLED` | 第二阶段填 `true`；如需临时关闭语义检索可填 `false` |
 | `AI_EMBEDDING_MODEL` | 推荐 `text-embedding-v4` |
@@ -51,6 +51,8 @@ node .\scripts\dev-server.mjs
 | `AI_EMBEDDING_API_KEY` | 可选；不填时复用 `AI_API_KEY` |
 | `AI_EMBEDDING_API_BASE_URL` | 可选；不填时复用 `AI_API_BASE_URL` |
 | `AI_SEMANTIC_THRESHOLD` | 可选；初始建议 `0.55`，上线测试后再调整 |
+
+EdgeOne 的临时预览域名可能随部署变化。正式上线时建议绑定一个稳定的生产域名；如果访问地址发生变化，必须把新的完整来源（协议和域名，不带结尾 `/`）加入 `AI_ALLOWED_ORIGINS`。不要使用 `*.edgeone.cool` 通配整个共享域名，否则其他 EdgeOne 站点也可能调用你的模型额度。
 
 PowerShell 7 可生成额度盐：
 

@@ -942,6 +942,7 @@ const Api = {
       const isOfficialSite = [
         'https://duyvxi.github.io',
         'https://dgtzddf-2lxcnmk2.edgeone.cool',
+        'https://tgfhjvhcvasgdiusfgfsh-4egfid21.edgeone.cool',
       ].includes(window.location.origin);
       if (!isLoopback && !isPrivateNetwork && !isOfficialSite) {
         throw new Error(`当前预览来源 ${window.location.origin} 尚未加入校园助手白名单，请改用 localhost 或联系维护者添加该地址`);
