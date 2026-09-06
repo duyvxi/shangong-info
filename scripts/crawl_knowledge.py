@@ -42,8 +42,11 @@ USER_AGENT = "SDTBUCampusInfoBot/2.0 (+https://github.com/duyvxi/shangong-info)"
 REQUEST_TIMEOUT = (6, 20)
 MAX_RESPONSE_BYTES = 2_500_000
 MAX_QUEUE_SIZE = 1_200
-CRAWL_DELAY_SECONDS = max(0.1, min(float(os.environ.get("CRAWL_DELAY_SECONDS", "0.35")), 5.0))
+MAX_ATTEMPTS_PER_SOURCE = 20
+MAX_CONSECUTIVE_FAILURES = 3
+CRAWL_DELAY_SECONDS = max(1.0, min(float(os.environ.get("CRAWL_DELAY_SECONDS", "1.5")), 5.0))
 REDIRECT_CODES = {301, 302, 303, 307, 308}
+RETRYABLE_STATUS_CODES = {429, 502, 503}
 TRACKING_QUERY_KEYS = {
     "from", "spm", "source", "ref", "referrer", "timestamp",
     "utm_campaign", "utm_content", "utm_medium", "utm_source", "utm_term",
@@ -201,6 +204,7 @@ class SafeFetcher:
 
     def fetch(self, url: str, *, check_robots: bool = True, html_only: bool = True) -> FetchedPage:
         current = url
+        retry_count = 0
         for _ in range(5):
             self.validate_url(current)
             if check_robots and not self.robots_allows(current):
@@ -211,6 +215,14 @@ class SafeFetcher:
                     if not location:
                         raise RuntimeError(f"重定向缺少目标地址：{current}")
                     current = normalize_url(location, current)
+                    continue
+                if response.status_code in RETRYABLE_STATUS_CODES and retry_count < 1:
+                    retry_count += 1
+                    retry_after = response.headers.get("Retry-After", "").strip()
+                    wait_seconds = float(retry_after) if retry_after.isdigit() else 5.0
+                    wait_seconds = max(2.0, min(wait_seconds, 60.0))
+                    print(f"[backoff] HTTP {response.status_code}，等待 {wait_seconds:g} 秒后重试一次：{current}")
+                    time.sleep(wait_seconds)
                     continue
                 if response.status_code != 200:
                     raise RuntimeError(f"HTTP {response.status_code}: {current}")
@@ -577,7 +589,8 @@ def crawl_source(database: SupabaseRest, source: dict[str, Any]) -> dict[str, An
         )
 
     fetcher = SafeFetcher(source["domain"])
-    page_limit = max(1, min(int(source.get("max_pages_per_run") or 40), 500))
+    configured_limit = max(1, int(source.get("max_pages_per_run") or 20))
+    attempt_limit = min(configured_limit, MAX_ATTEMPTS_PER_SOURCE)
     queue: list[tuple[int, int, str]] = []
     queued: set[str] = set()
     visited: set[str] = set()
@@ -592,17 +605,21 @@ def crawl_source(database: SupabaseRest, source: dict[str, Any]) -> dict[str, An
         "pages_added": 0,
         "pages_updated": 0,
         "pages_failed": 0,
+        "attempts": 0,
         "unchanged": 0,
         "errors": [],
     }
-    while queue and result["pages_scanned"] < page_limit:
+    consecutive_failures = 0
+    while queue and result["attempts"] < attempt_limit:
         _, _, url = heapq.heappop(queue)
         if url in visited:
             continue
         visited.add(url)
+        result["attempts"] += 1
         try:
             page = fetcher.fetch(url)
             result["pages_scanned"] += 1
+            consecutive_failures = 0
             soup = BeautifulSoup(page.content, "html.parser")
             for discovered in discover_links(soup, page.url, fetcher.allowed_hosts):
                 if discovered in queued or len(queued) >= MAX_QUEUE_SIZE:
@@ -622,14 +639,19 @@ def crawl_source(database: SupabaseRest, source: dict[str, Any]) -> dict[str, An
                     print(f"[updated] {source['name']} | {parsed.title}")
                 else:
                     result["unchanged"] += 1
-            time.sleep(CRAWL_DELAY_SECONDS)
         except PermissionError as exc:
             print(f"[robots] {exc}")
         except Exception as exc:  # Keep one broken page from stopping the source.
             result["pages_failed"] += 1
+            consecutive_failures += 1
             message = f"{url}: {exc}"
             result["errors"].append(message[:500])
             print(f"[warn] {message}")
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                print(f"[stop] 已连续失败 {MAX_CONSECUTIVE_FAILURES} 次，停止当前来源以保护官网。")
+                break
+        finally:
+            time.sleep(CRAWL_DELAY_SECONDS)
 
     if result["pages_scanned"] == 0 and result["pages_failed"]:
         status = "error"
@@ -655,6 +677,8 @@ def crawl_source(database: SupabaseRest, source: dict[str, Any]) -> dict[str, An
                 "error_summary": error_summary,
                 "details": {
                     "force": FORCE_CRAWL,
+                    "attempts": result["attempts"],
+                    "attempt_limit": attempt_limit,
                     "unchanged": result["unchanged"],
                     "queued": len(queued),
                     "errors": result["errors"][:10],

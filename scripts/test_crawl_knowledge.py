@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Offline tests for official-site URL and article extraction rules."""
+"""Offline tests for official-site URL, extraction, and safety rules."""
+
+import crawl_knowledge as crawler
 
 from crawl_knowledge import (
     SafeFetcher,
@@ -13,6 +15,10 @@ from bs4 import BeautifulSoup
 
 
 def run() -> None:
+    assert crawler.MAX_ATTEMPTS_PER_SOURCE == 20
+    assert crawler.MAX_CONSECUTIVE_FAILURES == 3
+    assert crawler.CRAWL_DELAY_SECONDS >= 1.0
+
     normalized = normalize_url(
         "../info/1001/12345.htm?utm_source=test&wbnewsid=77#footer",
         "https://jwc.sdtbu.edu.cn/index/tzgg.htm",
@@ -64,7 +70,47 @@ def run() -> None:
     list_page = b"<html><head><title>notice list</title></head><body><ul><li>item</li></ul></body></html>"
     assert extract_document(list_page, "https://jwc.sdtbu.edu.cn/index/tzgg.htm") is None
 
-    print("PASS 官网采集测试：域名限制、URL 去重、正文提取、分类规则均正常。")
+    class AlwaysFailFetcher:
+        allowed_hosts = {"jwc.sdtbu.edu.cn"}
+
+        def __init__(self, _domain: str):
+            pass
+
+        def fetch(self, _url: str):
+            raise RuntimeError("simulated failure")
+
+    originals = (
+        crawler.SafeFetcher,
+        crawler.source_start_urls,
+        crawler.time.sleep,
+        crawler.DRY_RUN,
+    )
+    try:
+        crawler.SafeFetcher = AlwaysFailFetcher
+        crawler.source_start_urls = lambda _source, _fetcher: [
+            f"https://jwc.sdtbu.edu.cn/info/1001/{number}.htm"
+            for number in range(10000, 10030)
+        ]
+        crawler.time.sleep = lambda _seconds: None
+        crawler.DRY_RUN = True
+        result = crawler.crawl_source(object(), {
+            "id": "test-source",
+            "name": "test",
+            "domain": "jwc.sdtbu.edu.cn",
+            "base_url": "https://jwc.sdtbu.edu.cn/",
+            "max_pages_per_run": 500,
+        })
+        assert result["attempts"] == 3
+        assert result["pages_failed"] == 3
+    finally:
+        (
+            crawler.SafeFetcher,
+            crawler.source_start_urls,
+            crawler.time.sleep,
+            crawler.DRY_RUN,
+        ) = originals
+
+    print("PASS 官网采集测试：域名限制、URL 去重、正文提取、分类与安全限额均正常。")
 
 
 if __name__ == "__main__":
