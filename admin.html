@@ -10,7 +10,7 @@
   <style>
     body { background: #f4f6fa; }
     .admin-wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
-    .admin-nav { display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+    .admin-nav { display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 12px; overflow-x: auto; }
     .admin-nav button {
       background: none; border: none; padding: 8px 16px; font-size: 14px; font-weight: 600;
       color: var(--muted); cursor: pointer; border-radius: 6px; transition: all 0.2s;
@@ -56,6 +56,16 @@
     .admin-login-card input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(250, 84, 28, .12); }
     .admin-login-card .btn { width: 100%; margin-top: 18px; justify-content: center; }
     .admin-login-msg { min-height: 20px; margin-top: 12px; font-size: 13px; color: #b91c1c; }
+    .knowledge-form { display:grid; grid-template-columns:1fr 1.5fr 1fr auto; gap:10px; align-items:end; margin-bottom:18px; }
+    .knowledge-form label { display:grid; gap:5px; font-size:12px; font-weight:700; color:#475569; }
+    .knowledge-form input, .knowledge-form select { min-width:0; padding:9px 10px; border:1px solid var(--border); border-radius:6px; font:inherit; background:#fff; }
+    .knowledge-note { margin:-6px 0 16px; font-size:12px; line-height:1.7; color:#64748b; }
+    @media (max-width: 760px) {
+      .admin-wrap { margin-top:14px; }
+      .knowledge-form { grid-template-columns:1fr; }
+      .dashboard-panel { overflow-x:auto; }
+      .admin-table { min-width:720px; }
+    }
   </style>
 </head>
 <body>
@@ -93,6 +103,8 @@
       <button id="nav-users" onclick="switchAdminTab('users')">👥 用户档案管理</button>
       <button id="nav-comments" onclick="switchAdminTab('comments')">💬 评论与回复审查</button>
       <button id="nav-feeds" onclick="switchAdminTab('feeds')">🆕 内容源自动更新</button>
+      <button id="nav-knowledge" onclick="switchAdminTab('knowledge')">📚 AI 知识来源</button>
+      <button id="nav-gaps" onclick="switchAdminTab('gaps')">🧩 未回答问题</button>
       <button id="nav-feedback" onclick="switchAdminTab('feedback')">🚩 纠错与失效处理</button>
       <button id="nav-submissions" onclick="switchAdminTab('submissions')">✍️ 学生投稿审核</button>
     </div>
@@ -120,6 +132,18 @@
         <div class="stat-card">
           <span class="stat-label">🚩 收到纠错反馈</span>
           <span class="stat-val" id="stat-feedbacks">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">📚 已发布知识</span>
+          <span class="stat-val" id="stat-knowledge-documents">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">🧠 已生成向量片段</span>
+          <span class="stat-val" id="stat-knowledge-chunks">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">🧩 待补充问题</span>
+          <span class="stat-val" id="stat-open-questions">-</span>
         </div>
       </div>
 
@@ -240,7 +264,54 @@
       </div>
     </div>
 
-    <!-- 5. 纠错反馈管理 -->
+    <!-- 5. AI 知识来源管理 -->
+    <div id="tab-pane-knowledge" style="display:none;">
+      <div class="dashboard-panel">
+        <h3>📚 AI 官方知识来源</h3>
+        <p class="knowledge-note">这里只允许填写学校官方 HTTPS 网站。新增来源默认需要人工审核，自动采集程序不会把未审核网页直接交给 AI。</p>
+        <form class="knowledge-form" id="knowledge-source-form">
+          <label>来源名称
+            <input id="source-name" maxlength="120" required placeholder="例如：团委官网">
+          </label>
+          <label>网站首页
+            <input id="source-url" type="url" required placeholder="https://部门域名.sdtbu.edu.cn/">
+          </label>
+          <label>默认分类
+            <select id="source-category">
+              <option value="">不预设</option>
+              <option value="入学报到">入学报到</option>
+              <option value="学籍管理">学籍管理</option>
+              <option value="选课教学">选课教学</option>
+              <option value="奖助贷勤">奖助贷勤</option>
+              <option value="考试相关">考试相关</option>
+              <option value="宿舍生活">宿舍生活</option>
+              <option value="校园服务">校园服务</option>
+              <option value="团学与创新创业">团学与创新创业</option>
+              <option value="毕业就业">毕业就业</option>
+            </select>
+          </label>
+          <button class="btn btn-primary btn-sm" type="submit">添加来源</button>
+        </form>
+        <table class="admin-table">
+          <thead><tr><th>来源</th><th>域名</th><th>默认分类</th><th>采集状态</th><th>最后采集</th><th>操作</th></tr></thead>
+          <tbody id="tbl-knowledge-sources"><tr><td colspan="6" style="text-align:center;">数据加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 6. AI 未回答问题 -->
+    <div id="tab-pane-gaps" style="display:none;">
+      <div class="dashboard-panel">
+        <h3>🧩 AI 未回答问题</h3>
+        <p class="knowledge-note">系统只保存脱敏后的问题示例，同一问题会自动累计次数。优先补充出现次数高的问题。</p>
+        <table class="admin-table">
+          <thead><tr><th>问题示例</th><th>分类</th><th>次数</th><th>最近出现</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="tbl-unanswered-questions"><tr><td colspan="6" style="text-align:center;">数据加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 7. 纠错反馈管理 -->
     <div id="tab-pane-feedback" style="display:none;">
       <div class="dashboard-panel">
         <h3>🚩 待处理纠错与失效上报</h3>
@@ -261,7 +332,7 @@
       </div>
     </div>
 
-    <!-- 5. 投稿审核管理 -->
+    <!-- 8. 投稿审核管理 -->
     <div id="tab-pane-submissions" style="display:none;">
       <div class="dashboard-panel">
         <h3>✍️ 学生原创经验投稿池</h3>
@@ -284,7 +355,7 @@
   </div>
 
   <script src="js/data.js"></script>
-  <script src="js/api.js"></script>
+  <script src="js/api.js?v=20260905-1"></script>
   <script>
     function escapeHtml(value) {
       return String(value == null ? '' : value).replace(/[&<>'"]/g, (char) => ({
@@ -356,7 +427,7 @@
     }
 
     function switchAdminTab(tab) {
-      ['dash', 'users', 'comments', 'feeds', 'feedback', 'submissions'].forEach(t => {
+      ['dash', 'users', 'comments', 'feeds', 'knowledge', 'gaps', 'feedback', 'submissions'].forEach(t => {
         const nav = document.getElementById('nav-' + t);
         const pane = document.getElementById('tab-pane-' + t);
         if (nav) nav.classList.remove('active');
@@ -389,6 +460,18 @@
         document.getElementById('stat-feedbacks').textContent = summary.totalFeedbacks;
       } catch (err) {
         console.warn('加载概览失败:', err);
+      }
+
+      try {
+        const knowledge = await window.Api.getKnowledgeOverview();
+        document.getElementById('stat-knowledge-documents').textContent = knowledge.documents;
+        document.getElementById('stat-knowledge-chunks').textContent = knowledge.readyChunks;
+        document.getElementById('stat-open-questions').textContent = knowledge.openQuestions;
+      } catch (err) {
+        document.getElementById('stat-knowledge-documents').textContent = '-';
+        document.getElementById('stat-knowledge-chunks').textContent = '-';
+        document.getElementById('stat-open-questions').textContent = '-';
+        console.warn('第二阶段知识表尚未就绪:', err);
       }
 
       // 2. 加载热门榜
@@ -583,7 +666,55 @@
         document.getElementById('tbl-feeds').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message || '请先在 Supabase 执行最新 SQL 创建 feeds 表')}</td></tr>`;
       }
 
-      // 7. 加载纠错反馈
+      // 7. AI 官方知识来源
+      try {
+        const sources = await window.Api.getKnowledgeSources();
+        const sourceBody = document.getElementById('tbl-knowledge-sources');
+        if (!sources.length) {
+          sourceBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">暂无来源，请先执行 supabase-ai-phase2.sql</td></tr>';
+        } else {
+          sourceBody.innerHTML = sources.map(source => `
+            <tr>
+              <td><b>${escapeHtml(source.name)}</b><br><a href="${safeExternalUrl(source.base_url)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#fa541c;">打开官网 →</a></td>
+              <td><code>${escapeHtml(source.domain)}</code></td>
+              <td>${escapeHtml(source.default_category || '未设置')}</td>
+              <td><span class="badge-status ${source.enabled ? 'badge-active' : 'badge-banned'}">${source.enabled ? '已启用' : '已暂停'}</span><br><small>${escapeHtml(source.last_status || 'never')}</small></td>
+              <td>${source.last_crawled_at ? new Date(source.last_crawled_at).toLocaleString() : '尚未采集'}</td>
+              <td><button class="btn-action ${source.enabled ? 'btn-danger' : 'btn-success'}" onclick="toggleKnowledgeSource('${source.id}', ${source.enabled ? 'false' : 'true'})">${source.enabled ? '暂停' : '启用'}</button></td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-knowledge-sources').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">第二阶段数据库尚未安装：${escapeHtml(err.message)}</td></tr>`;
+      }
+
+      // 8. AI 未回答问题
+      try {
+        const questions = await window.Api.getUnansweredQuestions({ status: 'all' });
+        const questionBody = document.getElementById('tbl-unanswered-questions');
+        if (!questions.length) {
+          questionBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">目前没有未回答问题</td></tr>';
+        } else {
+          questionBody.innerHTML = questions.map(question => `
+            <tr>
+              <td style="max-width:360px;word-break:break-word;"><b>${escapeHtml(question.sample_question)}</b></td>
+              <td><span class="tag">${escapeHtml(question.topic || '其他')}</span></td>
+              <td><b>${Number(question.ask_count) || 1}</b> 次</td>
+              <td>${new Date(question.last_asked_at).toLocaleString()}</td>
+              <td><span class="badge-status ${question.status === 'resolved' ? 'badge-active' : question.status === 'ignored' ? 'badge-banned' : 'badge-todo'}">${escapeHtml(question.status)}</span></td>
+              <td style="white-space:nowrap;">
+                ${question.status === 'open' ? `<button class="btn-action" onclick="setQuestionStatus('${question.id}', 'reviewing')">处理中</button>` : ''}
+                ${question.status !== 'resolved' ? `<button class="btn-action btn-success" onclick="setQuestionStatus('${question.id}', 'resolved')">已补充</button>` : ''}
+                ${question.status !== 'ignored' ? `<button class="btn-action btn-danger" onclick="setQuestionStatus('${question.id}', 'ignored')">忽略</button>` : ''}
+              </td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        document.getElementById('tbl-unanswered-questions').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">第二阶段数据库尚未安装：${escapeHtml(err.message)}</td></tr>`;
+      }
+
+      // 9. 加载纠错反馈
       try {
         const feedbacks = await window.Api.getFeedbacks();
         const fbBody = document.getElementById('tbl-feedbacks');
@@ -604,7 +735,7 @@
         document.getElementById('tbl-feedbacks').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message)}</td></tr>`;
       }
 
-      // 7. 加载投稿
+      // 10. 加载投稿
       try {
         const submissions = await window.Api.getSubmissions();
         const subBody = document.getElementById('tbl-submissions');
@@ -749,7 +880,54 @@
       }
     }
 
+    async function handleKnowledgeSourceSubmit(event) {
+      event.preventDefault();
+      const name = document.getElementById('source-name').value.trim();
+      const baseUrl = document.getElementById('source-url').value.trim();
+      const defaultCategory = document.getElementById('source-category').value;
+      const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+      try {
+        submitButton.disabled = true;
+        submitButton.textContent = '正在添加...';
+        await window.Api.createKnowledgeSource({ name, baseUrl, defaultCategory });
+        event.currentTarget.reset();
+        alert('官方来源已添加。新来源仍需经过采集和人工审核后才会用于 AI 回答。');
+        await loadAllAdminData();
+      } catch (err) {
+        alert('添加失败：' + (err.message || '请检查地址和数据库权限'));
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = '添加来源';
+      }
+    }
+
+    async function toggleKnowledgeSource(sourceId, enabled) {
+      const action = enabled ? '启用' : '暂停';
+      if (!confirm(`确认${action}这个官方来源吗？`)) return;
+      try {
+        await window.Api.updateKnowledgeSource(sourceId, {
+          enabled,
+          last_status: enabled ? 'never' : 'paused',
+        });
+        await loadAllAdminData();
+      } catch (err) {
+        alert(`${action}失败：${err.message}`);
+      }
+    }
+
+    async function setQuestionStatus(questionId, status) {
+      const labels = { reviewing: '处理中', resolved: '已补充', ignored: '忽略' };
+      if (!confirm(`确认将这个问题标记为“${labels[status] || status}”吗？`)) return;
+      try {
+        await window.Api.updateUnansweredQuestion(questionId, status);
+        await loadAllAdminData();
+      } catch (err) {
+        alert('更新失败：' + err.message);
+      }
+    }
+
     document.getElementById('admin-login-form').addEventListener('submit', handleAdminLogin);
+    document.getElementById('knowledge-source-form').addEventListener('submit', handleKnowledgeSourceSubmit);
     window.addEventListener('DOMContentLoaded', initializeAdminPage);
   </script>
 </body>

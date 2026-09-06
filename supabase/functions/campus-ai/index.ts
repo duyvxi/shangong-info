@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { rankDocuments } from "../_shared/retrieval.js";
+import { normalizeText, rankDocuments } from "../_shared/retrieval.js";
 
 type KnowledgeDocument = {
+  id?: string;
   slug: string;
   title: string;
   category: string;
@@ -10,6 +11,26 @@ type KnowledgeDocument = {
   source_url: string | null;
   source_date: string | null;
   verified_at: string | null;
+};
+
+type RetrievalMatch = KnowledgeDocument & {
+  retrieval_score: number;
+  retrieval_method: "keyword" | "semantic" | "hybrid";
+  semantic_score?: number;
+  chunk_id?: string;
+};
+
+type SemanticMatch = {
+  chunk_id: string;
+  document_id: string;
+  slug: string;
+  title: string;
+  category: string;
+  content: string;
+  source_url: string | null;
+  source_date: string | null;
+  verified_at: string | null;
+  semantic_score: number;
 };
 
 class CampusAIError extends Error {
@@ -168,7 +189,7 @@ async function consumeQuota(clientHash: string) {
 }
 
 async function fetchKnowledge(): Promise<KnowledgeDocument[]> {
-  const fields = "slug,title,category,summary,content,source_url,source_date,verified_at";
+  const fields = "id,slug,title,category,summary,content,source_url,source_date,verified_at";
   const response = await restRequest(
     `knowledge_documents?select=${fields}&status=eq.published&order=updated_at.desc&limit=500`,
   );
@@ -176,7 +197,7 @@ async function fetchKnowledge(): Promise<KnowledgeDocument[]> {
   return response.json();
 }
 
-function buildContext(documents: Array<KnowledgeDocument & { retrieval_score: number }>) {
+function buildContext(documents: RetrievalMatch[]) {
   return documents.map((document, index) => {
     const sourceMeta = [
       document.source_date && `发布日期 ${document.source_date}`,
@@ -189,6 +210,200 @@ function buildContext(documents: Array<KnowledgeDocument & { retrieval_score: nu
       document.source_url ? `官方来源：${document.source_url}` : "官方来源：未记录",
     ].join("\n");
   }).join("\n\n---\n\n");
+}
+
+function embeddingConfig() {
+  const dimensions = Number(env("AI_EMBEDDING_DIMENSIONS", "1024"));
+  return {
+    enabled: env("AI_EMBEDDING_ENABLED", "true").toLowerCase() !== "false",
+    apiKey: env("AI_EMBEDDING_API_KEY") || env("AI_API_KEY"),
+    baseUrl: (env("AI_EMBEDDING_API_BASE_URL") || env("AI_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")).replace(/\/$/, ""),
+    model: env("AI_EMBEDDING_MODEL", "text-embedding-v4"),
+    dimensions,
+  };
+}
+
+async function createQuestionEmbedding(question: string) {
+  const config = embeddingConfig();
+  if (!config.enabled || !config.apiKey) return null;
+  if (config.dimensions !== 1024) {
+    console.warn("Semantic search disabled: AI_EMBEDDING_DIMENSIONS must be 1024");
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${config.baseUrl}/embeddings`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        input: question,
+        dimensions: config.dimensions,
+        encoding_format: "float",
+      }),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+    if (!response.ok) {
+      console.warn("Embedding request failed", response.status, payload);
+      return null;
+    }
+    const data = Array.isArray(payload.data) ? payload.data : [];
+    const embedding = (data[0] as Record<string, unknown> | undefined)?.embedding;
+    if (!Array.isArray(embedding) || embedding.length !== config.dimensions) {
+      console.warn("Embedding response has unexpected dimensions");
+      return null;
+    }
+    return embedding as number[];
+  } catch (error) {
+    console.warn("Semantic search unavailable; falling back to keywords", error);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function semanticSearch(question: string): Promise<SemanticMatch[]> {
+  const embedding = await createQuestionEmbedding(question);
+  if (!embedding) return [];
+  const threshold = Math.max(0, Math.min(Number(env("AI_SEMANTIC_THRESHOLD", "0.55")) || 0.55, 1));
+  const response = await restRequest("rpc/match_knowledge_chunks", {
+    method: "POST",
+    body: JSON.stringify({
+      p_query_embedding: embedding,
+      p_match_threshold: threshold,
+      p_match_count: 12,
+    }),
+  });
+  if (!response.ok) {
+    console.warn("Semantic RPC unavailable; falling back to keywords", await response.text());
+    return [];
+  }
+  return response.json();
+}
+
+function fuseMatches(
+  keywordMatches: Array<KnowledgeDocument & { retrieval_score: number }>,
+  semanticMatches: SemanticMatch[],
+  limit = 5,
+): RetrievalMatch[] {
+  const combined = new Map<string, RetrievalMatch & { keyword_rank?: number; semantic_rank?: number }>();
+
+  keywordMatches.forEach((document, rank) => {
+    const keywordStrength = Math.min(document.retrieval_score / 20, 1);
+    combined.set(document.slug, {
+      ...document,
+      retrieval_score: keywordStrength * 0.35 + 0.35 / (rank + 1),
+      retrieval_method: "keyword",
+      keyword_rank: rank,
+    });
+  });
+
+  const seenSemanticDocuments = new Set<string>();
+  semanticMatches.forEach((row, rank) => {
+    if (seenSemanticDocuments.has(row.slug)) return;
+    seenSemanticDocuments.add(row.slug);
+    const existing = combined.get(row.slug);
+    const semanticStrength = Math.max(0, Math.min(Number(row.semantic_score) || 0, 1));
+    const semanticContribution = semanticStrength * 0.65 + 0.35 / (rank + 1);
+    if (existing) {
+      combined.set(row.slug, {
+        ...existing,
+        id: row.document_id,
+        content: row.content,
+        source_url: row.source_url,
+        source_date: row.source_date,
+        verified_at: row.verified_at,
+        chunk_id: row.chunk_id,
+        semantic_score: semanticStrength,
+        semantic_rank: rank,
+        retrieval_score: existing.retrieval_score + semanticContribution,
+        retrieval_method: "hybrid",
+      });
+    } else {
+      combined.set(row.slug, {
+        id: row.document_id,
+        slug: row.slug,
+        title: row.title,
+        category: row.category,
+        summary: "",
+        content: row.content,
+        source_url: row.source_url,
+        source_date: row.source_date,
+        verified_at: row.verified_at,
+        chunk_id: row.chunk_id,
+        semantic_score: semanticStrength,
+        semantic_rank: rank,
+        retrieval_score: semanticContribution,
+        retrieval_method: "semantic",
+      });
+    }
+  });
+
+  return [...combined.values()]
+    .sort((a, b) => b.retrieval_score - a.retrieval_score)
+    .slice(0, limit)
+    .map(({ keyword_rank: _keywordRank, semantic_rank: _semanticRank, ...match }) => match);
+}
+
+async function retrieveKnowledge(question: string, documents: KnowledgeDocument[]) {
+  const keywordMatches = rankDocuments(question, documents, 8) as Array<KnowledgeDocument & { retrieval_score: number }>;
+  let semanticMatches: SemanticMatch[] = [];
+  try {
+    semanticMatches = await semanticSearch(question);
+  } catch (error) {
+    console.warn("Semantic search failed; continuing with keyword results", error);
+  }
+  return {
+    matches: fuseMatches(keywordMatches, semanticMatches, 5),
+    mode: semanticMatches.length > 0 ? "hybrid" : "keyword",
+  };
+}
+
+function redactQuestion(question: string) {
+  return question
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[邮箱]")
+    .replace(/(^|\D)1[3-9]\d{9}(?!\d)/g, "$1[手机号]")
+    .replace(/(^|\D)\d{8,20}(?!\d)/g, "$1[编号]")
+    .slice(0, 500);
+}
+
+function classifyTopic(question: string) {
+  const groups: Array<[string, RegExp]> = [
+    ["学生组织", /学生会|研究生会|社团|团委|志愿者|学生组织/],
+    ["教学与考试", /选课|课程|考试|补考|重修|成绩|学分|教务/],
+    ["宿舍生活", /宿舍|公寓|门禁|水电|报修|调宿/],
+    ["奖助与就业", /奖学金|助学金|贷款|勤工|就业|招聘|实习/],
+    ["入学与学籍", /报到|新生|学籍|转专业|休学|复学|毕业|档案/],
+    ["校园服务", /食堂|图书馆|校医院|一卡通|校园网|快递|地图/],
+  ];
+  return groups.find(([, pattern]) => pattern.test(question))?.[0] || "其他";
+}
+
+async function recordUnansweredQuestion(question: string) {
+  try {
+    const sample = redactQuestion(question);
+    const normalized = normalizeText(sample).slice(0, 500) || "未分类问题";
+    const questionHash = await sha256(`${env("AI_RATE_LIMIT_SALT")}:unanswered:${normalized}`);
+    const response = await restRequest("rpc/record_unanswered_question", {
+      method: "POST",
+      body: JSON.stringify({
+        p_question_hash: questionHash,
+        p_sample_question: sample,
+        p_normalized_question: normalized,
+        p_topic: classifyTopic(sample),
+        p_metadata: { source: "campus-ai" },
+      }),
+    });
+    if (!response.ok) console.warn("Unanswered question log failed", await response.text());
+  } catch (error) {
+    console.warn("Unanswered question log failed", error);
+  }
 }
 
 function systemInstructions() {
@@ -348,8 +563,10 @@ Deno.serve(async (request: Request) => {
     }
 
     const documents = await fetchKnowledge();
-    const matches = rankDocuments(question, documents, 5) as Array<KnowledgeDocument & { retrieval_score: number }>;
+    const retrieval = await retrieveKnowledge(question, documents);
+    const matches = retrieval.matches;
     if (matches.length === 0) {
+      await recordUnansweredQuestion(question);
       await logUsage({
         client_hash: clientHash,
         provider: "none",
@@ -361,10 +578,11 @@ Deno.serve(async (request: Request) => {
         status: "no_match",
       });
       return jsonResponse({
-        answer: "现有知识库暂未收录这个问题的可靠资料。你可以换一个更具体的关键词，或前往学校官方渠道查询。",
+        answer: "现有知识库暂未收录这个问题的可靠资料。这个问题已进入待补充清单；你也可以补充具体学院、部门或事项名称后重新提问。",
         sources: [],
         remaining: quota.remaining,
         noMatch: true,
+        answerMode: "no_match",
       }, 200, origin);
     }
 
@@ -377,6 +595,7 @@ Deno.serve(async (request: Request) => {
       url: document.source_url,
       sourceDate: document.source_date,
       verifiedAt: document.verified_at,
+      retrievalMethod: document.retrieval_method,
     }));
 
     await logUsage({
@@ -390,7 +609,13 @@ Deno.serve(async (request: Request) => {
       status: "ok",
     });
 
-    return jsonResponse({ answer: result.answer, sources, remaining: quota.remaining }, 200, origin);
+    return jsonResponse({
+      answer: result.answer,
+      sources,
+      remaining: quota.remaining,
+      answerMode: "knowledge",
+      retrievalMode: retrieval.mode,
+    }, 200, origin);
   } catch (error) {
     console.error("campus-ai failed", error);
     await logUsage({

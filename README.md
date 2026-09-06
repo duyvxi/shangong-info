@@ -1,6 +1,6 @@
 # 山东工商学院校园信息聚合站（山商信息通）
 
-一个面向山东工商学院（SDTBU）新生的 **AI 校园信息聚合网站**：定位为「官网导航层 + 政策解读层」，按学生场景组织校园政策与资讯，纯静态、零后端成本。
+一个面向山东工商学院（SDTBU）学生的 **AI 校园信息聚合网站**：定位为「官网导航层 + 政策解读层」，按学生场景组织校园政策与资讯。静态前端部署在 GitHub Pages / EdgeOne，AI 与数据服务运行在 Supabase。
 
 ## 功能一览
 
@@ -15,12 +15,12 @@
 | 层 | 选型 |
 |---|---|
 | 前端 | 纯 HTML / CSS / Vanilla JS（零构建） |
-| 后端 | Supabase（PostgreSQL + Auth + RLS 行级安全） |
+| 后端 | Supabase（PostgreSQL + pgvector + Edge Functions + Auth + RLS） |
 | 自动化 | GitHub Actions（定时抓取） + GitHub Pages（托管） |
 
-## AI 校园助手（第一阶段）
+## AI 校园助手
 
-项目已加入基于 Supabase Edge Function 的只读校园问答入口：服务端先从已审核知识库检索相关资料，再调用可配置的大模型生成带来源的回答。模型密钥不会进入浏览器，数据库也不保存聊天正文。
+项目已加入基于 Supabase Edge Function 的只读校园问答入口。第一阶段提供关键词检索；第二阶段增加知识切片、`pgvector` 语义检索、混合排序、官方来源管理和脱敏后的未回答问题统计。模型密钥不会进入浏览器，数据库不保存完整聊天记录。
 
 部署与手动配置见 [`AI_SETUP.md`](AI_SETUP.md)。
 
@@ -42,11 +42,15 @@ shangong-info/
 │   └── app.js            # 主站渲染与交互
 ├── scripts/
 │   ├── dev-server.mjs    # 无依赖的本地预览服务
+│   ├── knowledge-chunking.mjs # 知识切片工具
+│   ├── reindex_knowledge.mjs  # 向量重建脚本
 │   └── fetch_feeds.py    # 自动抓取脚本（官网/教务处/学生处）
 ├── 启动本地预览.cmd      # Windows 一键预览入口
 ├── .github/workflows/
 │   └── fetch-content.yml # 每 6 小时定时抓取
 ├── supabase-schema.sql   # 数据库基础建表脚本
+├── supabase-ai-phase1.sql # AI 第一阶段知识库与额度
+├── supabase-ai-phase2.sql # AI 第二阶段向量与知识运营
 └── supabase-security-phase2.sql # 管理员与 RLS 安全迁移（基础脚本后执行）
 ```
 

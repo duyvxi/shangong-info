@@ -739,6 +739,128 @@ const Api = {
   },
 
   // ==========================================
+  // AI 知识运营（仅可信管理员，数据库 RLS 强制校验）
+  // ==========================================
+
+  async getKnowledgeSources(limit = 100) {
+    if (!this.isConfigured() || !supabaseClient) return [];
+    const { data, error } = await supabaseClient
+      .from('knowledge_sources')
+      .select('id,name,base_url,domain,source_type,default_category,enabled,requires_review,crawl_interval_hours,max_pages_per_run,last_crawled_at,last_status,last_error,updated_at')
+      .order('enabled', { ascending: false })
+      .order('name', { ascending: true })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
+  },
+
+  async createKnowledgeSource(source) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('请先配置 Supabase 后端凭证');
+    let parsed;
+    try {
+      parsed = new URL(String(source.baseUrl || '').trim());
+    } catch (error) {
+      throw new Error('请输入完整的 HTTPS 官网地址');
+    }
+    if (parsed.protocol !== 'https:') throw new Error('知识来源必须使用 HTTPS 地址');
+    const domain = parsed.hostname.toLowerCase();
+    if (domain !== 'sdtbu.edu.cn' && !domain.endsWith('.sdtbu.edu.cn')) {
+      throw new Error('目前只允许添加山东工商学院 sdtbu.edu.cn 官方域名');
+    }
+    const baseUrl = `${parsed.origin}/`;
+    const payload = {
+      name: String(source.name || '').trim().slice(0, 120),
+      base_url: baseUrl,
+      domain,
+      source_type: source.sourceType || 'department_site',
+      default_category: source.defaultCategory || null,
+      enabled: true,
+      requires_review: true,
+    };
+    if (!payload.name) throw new Error('请填写来源名称');
+    const { data, error } = await supabaseClient
+      .from('knowledge_sources')
+      .insert(payload)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async updateKnowledgeSource(sourceId, changes) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('请先配置 Supabase 后端凭证');
+    const allowed = [
+      'name', 'default_category', 'enabled', 'requires_review',
+      'crawl_interval_hours', 'max_pages_per_run', 'last_status',
+    ];
+    const payload = { updated_at: new Date().toISOString() };
+    allowed.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(changes || {}, key)) payload[key] = changes[key];
+    });
+    const { error } = await supabaseClient.from('knowledge_sources').update(payload).eq('id', sourceId);
+    if (error) throw error;
+    return true;
+  },
+
+  async getUnansweredQuestions({ limit = 100, status = 'open' } = {}) {
+    if (!this.isConfigured() || !supabaseClient) return [];
+    let query = supabaseClient
+      .from('unanswered_questions')
+      .select('id,sample_question,topic,ask_count,status,first_asked_at,last_asked_at,resolved_at,resolution_document_id')
+      .order('ask_count', { ascending: false })
+      .order('last_asked_at', { ascending: false })
+      .limit(limit);
+    if (status && status !== 'all') query = query.eq('status', status);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  },
+
+  async updateUnansweredQuestion(questionId, status) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('请先配置 Supabase 后端凭证');
+    if (!['open', 'reviewing', 'resolved', 'ignored'].includes(status)) throw new Error('无效的处理状态');
+    const payload = {
+      status,
+      resolved_at: status === 'resolved' ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabaseClient.from('unanswered_questions').update(payload).eq('id', questionId);
+    if (error) throw error;
+    return true;
+  },
+
+  async getKnowledgeOverview() {
+    if (!this.isConfigured() || !supabaseClient) {
+      return { sources: 0, documents: 0, readyChunks: 0, openQuestions: 0 };
+    }
+    const [sources, documents, chunks, questions] = await Promise.all([
+      supabaseClient.from('knowledge_sources').select('id', { count: 'exact', head: true }).eq('enabled', true),
+      supabaseClient.from('knowledge_documents').select('id', { count: 'exact', head: true }).eq('status', 'published'),
+      supabaseClient.from('knowledge_chunks').select('id', { count: 'exact', head: true }).eq('embedding_status', 'ready'),
+      supabaseClient.from('unanswered_questions').select('id', { count: 'exact', head: true }).eq('status', 'open'),
+    ]);
+    const firstError = [sources.error, documents.error, chunks.error, questions.error].find(Boolean);
+    if (firstError) throw firstError;
+    return {
+      sources: sources.count || 0,
+      documents: documents.count || 0,
+      readyChunks: chunks.count || 0,
+      openQuestions: questions.count || 0,
+    };
+  },
+
+  async getCrawlJobs(limit = 30) {
+    if (!this.isConfigured() || !supabaseClient) return [];
+    const { data, error } = await supabaseClient
+      .from('crawl_jobs')
+      .select('id,source_id,status,pages_scanned,pages_added,pages_updated,pages_failed,error_summary,started_at,finished_at,created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
+  },
+
+  // ==========================================
   // AI 校园助手（模型密钥仅存在 Supabase Edge Function）
   // ==========================================
 

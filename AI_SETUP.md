@@ -1,12 +1,16 @@
-# AI 校园助手第一阶段部署说明
+# AI 校园助手部署说明
 
 当前第一阶段采用：Supabase 私有知识表 + 服务端关键词检索 + 可替换大模型 API。
 模型只接收本次检索到的少量校园资料，浏览器不会接触模型密钥。
 
+第二阶段在不删除第一阶段数据的前提下增加：官方来源管理、知识切片、1024 维向量、关键词与语义混合检索，以及脱敏后的未回答问题统计。
+
 ## 已有代码
 
 - `supabase-ai-phase1.sql`：知识库、匿名额度和无正文用量日志。
+- `supabase-ai-phase2.sql`：知识来源、知识切片、向量检索与未回答问题。
 - `scripts/sync_knowledge.mjs`：把 `js/data.js` 同步到知识表。
+- `scripts/reindex_knowledge.mjs`：拆分已发布资料并生成向量。
 - `supabase/functions/campus-ai/index.ts`：检索与模型调用接口。
 - `js/ai.js`：移动端 AI 助手页面。
 
@@ -41,6 +45,12 @@ node .\scripts\dev-server.mjs
 | `AI_REQUEST_LIMIT` | 每个匿名浏览器每小时额度，建议先填 `12` |
 | `AI_ALLOWED_ORIGINS` | `https://duyvxi.github.io,https://dgtzddf-2lxcnmk2.edgeone.cool`（多个正式域名用英文逗号分隔，不要加结尾 `/`；本机 localhost/127.0.0.1 的任意端口已自动允许） |
 | `AI_MODEL_TIMEOUT_MS` | 可选；等待模型的毫秒数，默认 `55000`，允许范围 `10000`～`90000` |
+| `AI_EMBEDDING_ENABLED` | 第二阶段填 `true`；如需临时关闭语义检索可填 `false` |
+| `AI_EMBEDDING_MODEL` | 推荐 `text-embedding-v4` |
+| `AI_EMBEDDING_DIMENSIONS` | 必须填 `1024`，需要与数据库字段维度一致 |
+| `AI_EMBEDDING_API_KEY` | 可选；不填时复用 `AI_API_KEY` |
+| `AI_EMBEDDING_API_BASE_URL` | 可选；不填时复用 `AI_API_BASE_URL` |
+| `AI_SEMANTIC_THRESHOLD` | 可选；初始建议 `0.55`，上线测试后再调整 |
 
 PowerShell 7 可生成额度盐：
 
@@ -49,6 +59,32 @@ PowerShell 7 可生成额度盐：
 ```
 
 不要把上述真实值写入 Git、网页或聊天记录。
+
+## 第二阶段首次安装顺序
+
+1. 在 Supabase SQL Editor 完整执行 `supabase-ai-phase2.sql`。
+2. 在 Edge Functions Secrets 添加 `AI_EMBEDDING_ENABLED=true`、`AI_EMBEDDING_MODEL=text-embedding-v4`、`AI_EMBEDDING_DIMENSIONS=1024`。
+3. 如果生成回答和生成向量使用同一个百炼账号，不必重复添加 API Key 和 Base URL；系统会复用第一阶段配置。
+4. 重新部署 `campus-ai` 函数。
+5. 在本地终端临时设置服务端变量并运行向量重建脚本。
+
+Windows 新手可直接双击项目根目录的 `生成知识向量.cmd`。向导会隐藏输入的密钥，先进行不写入数据库的切片检查，经确认后再生成并上传向量；完成或失败时都会清理当前进程中的临时密钥。
+
+PowerShell 示例（尖括号内容换成自己的真实值，不要把真实值截图或提交到 Git）：
+
+```powershell
+$env:SUPABASE_URL = 'https://hadujcmbmgkypdqgulyh.supabase.co'
+$env:SUPABASE_SECRET_KEY = '<Supabase Secret Key>'
+$env:AI_EMBEDDING_API_KEY = '<百炼 API Key>'
+$env:AI_EMBEDDING_API_BASE_URL = '<与现有 AI_API_BASE_URL 相同的兼容模式地址>'
+$env:AI_EMBEDDING_MODEL = 'text-embedding-v4'
+$env:AI_EMBEDDING_DIMENSIONS = '1024'
+node .\scripts\reindex_knowledge.mjs
+Remove-Item Env:SUPABASE_SECRET_KEY
+Remove-Item Env:AI_EMBEDDING_API_KEY
+```
+
+成功时会显示每篇资料的切片数量，最后显示“向量重建完成”。如果只想检查切片逻辑，可以在具备 Supabase 服务端变量后使用 `--dry-run`，不会写入数据库或调用向量模型。
 
 ## 后续自行同步资料
 

@@ -117,7 +117,7 @@
       if (!window.Api?.askCampusAI) throw new Error('校园助手前端尚未完成配置');
       const result = await window.Api.askCampusAI(cleanQuestion);
       loading.remove();
-      addAssistantMessage(result.answer, result.sources || [], false);
+      addAssistantMessage(result.answer, result.sources || [], result.noMatch === true);
       if (remaining && Number.isFinite(result.remaining)) remaining.textContent = `本小时还可提问 ${result.remaining} 次`;
     } catch (error) {
       loading.remove();
