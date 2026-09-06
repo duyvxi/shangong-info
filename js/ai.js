@@ -82,7 +82,8 @@
       const number = String(source.index || index + 1).padStart(2, '0');
       const date = source.verifiedAt ? `核实于 ${String(source.verifiedAt).slice(0, 10)}` : source.sourceDate ? `资料日期 ${source.sourceDate}` : '本站整理资料';
       const url = safeHttpUrl(source.url);
-      const tag = url ? '官方来源' : '整理资料';
+      const sourceTags = { official_notice: '官方来源', manual: '学生整理', curated: '本站整理' };
+      const tag = sourceTags[source.sourceType] || (url ? '参考链接' : '整理资料');
       const inner = `<span class="ai-source-index">${number}</span><span class="ai-source-copy"><b>${escapeHtml(source.title)}</b><small><i></i>${escapeHtml(tag)} · ${escapeHtml(date)}</small></span><span class="ai-source-arrow">↗</span>`;
       return url ? `<a class="ai-source-card" href="${escapeHtml(url)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="ai-source-card ai-source-card-static">${inner}</div>`;
     }).join('')}</div>`;

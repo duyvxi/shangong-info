@@ -9,8 +9,12 @@ type KnowledgeDocument = {
   summary: string;
   content: string;
   source_url: string | null;
+  source_type: "curated" | "official_notice" | "manual";
   source_date: string | null;
   verified_at: string | null;
+  effective_from: string | null;
+  effective_until: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 type RetrievalMatch = KnowledgeDocument & {
@@ -31,6 +35,10 @@ type SemanticMatch = {
   source_date: string | null;
   verified_at: string | null;
   semantic_score: number;
+  source_type?: KnowledgeDocument["source_type"];
+  effective_from?: string | null;
+  effective_until?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 class CampusAIError extends Error {
@@ -190,12 +198,24 @@ async function consumeQuota(clientHash: string) {
 }
 
 async function fetchKnowledge(): Promise<KnowledgeDocument[]> {
-  const fields = "id,slug,title,category,summary,content,source_url,source_date,verified_at";
+  const fields = "id,slug,title,category,summary,content,source_url,source_type,source_date,verified_at,effective_from,effective_until,metadata";
   const response = await restRequest(
     `knowledge_documents?select=${fields}&status=eq.published&order=updated_at.desc&limit=500`,
   );
   if (!response.ok) throw new Error(`知识库读取失败：${await response.text()}`);
-  return response.json();
+  const rows = await response.json() as KnowledgeDocument[];
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.filter((document) =>
+    (!document.effective_from || document.effective_from <= today)
+    && (!document.effective_until || document.effective_until >= today)
+  );
+}
+
+function sourceKind(document: KnowledgeDocument | RetrievalMatch) {
+  if (document.source_type === "official_notice") return "官方通知";
+  const sourceClass = String(document.metadata?.source_class || "");
+  if (sourceClass === "student_curated" || sourceClass === "student_submission") return "学生整理资料";
+  return "本站整理资料";
 }
 
 function buildContext(documents: RetrievalMatch[]) {
@@ -207,8 +227,11 @@ function buildContext(documents: RetrievalMatch[]) {
     return [
       `[资料 ${index + 1}] ${document.title}`,
       `分类：${document.category}${sourceMeta ? `；${sourceMeta}` : ""}`,
+      `资料性质：${sourceKind(document)}`,
       document.content.slice(0, 3200),
-      document.source_url ? `官方来源：${document.source_url}` : "官方来源：未记录",
+      document.source_url
+        ? `${document.source_type === "official_notice" ? "官方来源" : "参考链接"}：${document.source_url}`
+        : "参考链接：未记录",
     ].join("\n");
   }).join("\n\n---\n\n");
 }
@@ -320,6 +343,10 @@ function fuseMatches(
         source_url: row.source_url,
         source_date: row.source_date,
         verified_at: row.verified_at,
+        source_type: row.source_type || "curated",
+        effective_from: row.effective_from || null,
+        effective_until: row.effective_until || null,
+        metadata: row.metadata || null,
         chunk_id: row.chunk_id,
         semantic_score: semanticStrength,
         semantic_rank: rank,
@@ -337,6 +364,10 @@ function fuseMatches(
         source_url: row.source_url,
         source_date: row.source_date,
         verified_at: row.verified_at,
+        source_type: row.source_type || "curated",
+        effective_from: row.effective_from || null,
+        effective_until: row.effective_until || null,
+        metadata: row.metadata || null,
         chunk_id: row.chunk_id,
         semantic_score: semanticStrength,
         semantic_rank: rank,
@@ -360,6 +391,13 @@ async function retrieveKnowledge(question: string, documents: KnowledgeDocument[
   } catch (error) {
     console.warn("Semantic search failed; continuing with keyword results", error);
   }
+  const documentsBySlug = new Map(documents.map((document) => [document.slug, document]));
+  // RPC 只返回切片字段。这里用经过有效期过滤的文章补回来源性质，
+  // 同时丢弃已过期或尚未生效文章的语义结果。
+  semanticMatches = semanticMatches.flatMap((row) => {
+    const document = documentsBySlug.get(row.slug);
+    return document ? [{ ...document, ...row, content: row.content }] : [];
+  });
   return {
     matches: fuseMatches(keywordMatches, semanticMatches, 5),
     mode: semanticMatches.length > 0 ? "hybrid" : "keyword",
@@ -414,7 +452,9 @@ function systemInstructions() {
     "回答应直接、简洁、适合学生阅读。涉及流程时使用短列表。",
     "每个事实结论后用 [1]、[2] 这样的编号标注对应资料；编号必须来自提供的资料。",
     "资料不足、相互冲突或已经可能过期时，明确说‘现有知识库无法确认’，并建议查看列出的官方来源。",
-    "不要把学生评论当成官方政策。不要索取或复述学号、身份证号、手机号等个人信息。",
+    "资料性质标为‘学生整理资料’时，要用‘学生整理资料显示’或‘可作为参考’来表述，不得说成学校官方规定或固定承诺。",
+    "公交线路、食堂档口、营业时间和价格属于动态信息，应提醒用户出发或到店前核对实时信息。不要把学生评论当成官方政策。",
+    "不要索取或复述学号、身份证号、手机号等个人信息。",
     "结尾固定补充：‘本站为学生自发整理，具体办理以学校官方最新通知为准。’",
   ].join("\n");
 }
@@ -596,6 +636,8 @@ Deno.serve(async (request: Request) => {
       url: document.source_url,
       sourceDate: document.source_date,
       verifiedAt: document.verified_at,
+      sourceType: document.source_type,
+      sourceLabel: typeof document.metadata?.source_name === "string" ? document.metadata.source_name : sourceKind(document),
       retrievalMethod: document.retrieval_method,
     }));
 

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { chunkDocument, contentHash, normalizeWhitespace } from './knowledge-chunking.mjs';
+import { validateAndPrepare } from './import_manual_knowledge.mjs';
 
 assert.equal(normalizeWhitespace('第一行\r\n\r\n\r\n第二行'), '第一行\n\n第二行');
 assert.equal(contentHash('同一内容'), contentHash('同一内容'));
@@ -17,5 +19,15 @@ assert.ok(chunks.every((chunk) => chunk.content.length <= 360));
 assert.deepEqual(chunks.map((chunk) => chunk.chunk_index), chunks.map((_, index) => index));
 assert.ok(chunks.every((chunk) => /^[a-f0-9]{64}$/.test(chunk.content_hash)));
 
-console.log(`PASS 第二阶段知识切片测试：生成 ${chunks.length} 个长文切片。`);
+const manualSource = JSON.parse(await readFile(new URL('../knowledge/student-curated-2026-09.json', import.meta.url), 'utf8'));
+const manualDocuments = validateAndPrepare(manualSource);
+assert.equal(manualDocuments.length, 17);
+assert.equal(new Set(manualDocuments.map((document) => document.slug)).size, manualDocuments.length);
+assert.ok(manualDocuments.every((document) => /^[a-f0-9]{64}$/.test(document.checksum)));
+assert.ok(manualDocuments.filter((document) => document.source_type === 'manual').every((document) => document.metadata.source_class === 'student_curated'));
+assert.equal(
+  manualDocuments.find((document) => document.slug === 'manual-bus-route-62-before-2026-09-10')?.effective_until,
+  '2026-09-09',
+);
 
+console.log(`PASS 第二阶段知识切片测试：生成 ${chunks.length} 个长文切片，校验 ${manualDocuments.length} 篇人工资料。`);

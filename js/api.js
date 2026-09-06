@@ -807,7 +807,6 @@ const Api = {
     let query = supabaseClient
       .from('knowledge_documents')
       .select('id,title,category,summary,canonical_url,source_url,source_date,status,source_type,last_crawled_at,updated_at,metadata')
-      .eq('source_type', 'official_notice')
       .order('updated_at', { ascending: false })
       .limit(limit);
     if (status && status !== 'all') query = query.eq('status', status);
@@ -828,8 +827,7 @@ const Api = {
     const { error } = await supabaseClient
       .from('knowledge_documents')
       .update(payload)
-      .eq('id', documentId)
-      .eq('source_type', 'official_notice');
+      .eq('id', documentId);
     if (error) throw error;
     return true;
   },

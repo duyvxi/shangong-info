@@ -43,6 +43,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: 导入已复核的人工整理知识
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: node scripts/import_manual_knowledge.mjs
+
       - name: 抓取最新消息列表
         continue-on-error: true
         env:
