@@ -92,10 +92,14 @@
   function addAssistantMessage(answer, sources, isError) {
     const wrapper = document.createElement('div');
     wrapper.className = `ai-message ai-message-assistant${isError ? ' ai-message-error' : ''}`;
-    wrapper.innerHTML = `<div class="ai-message-label">${isError ? '暂未查到' : 'AI 值班台'}</div><div class="ai-bubble">${escapeHtml(answer).replace(/\n/g, '<br>')}</div>${renderSources(sources)}${isError ? '' : '<div class="ai-answer-actions"><button type="button" data-copy-answer>复制回答</button><span>办理前请核对官方通知</span></div>'}`;
+    const answerHtml = isError
+      ? escapeHtml(answer).replace(/\n/g, '<br>')
+      : window.SafeMarkdown?.render(answer) || escapeHtml(answer).replace(/\n/g, '<br>');
+    wrapper.innerHTML = `<div class="ai-message-label">${isError ? '暂未查到' : 'AI 值班台'}</div><div class="ai-bubble${isError ? '' : ' ai-markdown'}">${answerHtml}</div>${renderSources(sources)}${isError ? '' : '<div class="ai-answer-actions"><button type="button" data-copy-answer>复制回答</button><span>办理前请核对官方通知</span></div>'}`;
     messages.appendChild(wrapper);
     wrapper.querySelector('[data-copy-answer]')?.addEventListener('click', async (event) => {
-      try { await navigator.clipboard.writeText(answer); event.currentTarget.textContent = '已复制'; }
+      const plainText = window.SafeMarkdown?.toPlainText(answer) || answer;
+      try { await navigator.clipboard.writeText(plainText); event.currentTarget.textContent = '已复制'; }
       catch (error) { event.currentTarget.textContent = '复制失败'; }
     });
     scrollMessages();

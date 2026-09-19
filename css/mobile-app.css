@@ -144,6 +144,24 @@ body.mobile-app [hidden] { display: none !important; }
 #page-ai .ai-bubble { max-width: min(88%, 620px); padding: 12px 14px; border: 1px solid var(--app-line); border-radius: 6px 16px 16px 16px; background: var(--app-bg); color: var(--app-copy); font-size: 13px; line-height: 1.75; }
 #page-ai .ai-message-user .ai-bubble { border-color: #ffc8b4; border-radius: 16px 6px 16px 16px; background: var(--app-brand-soft); color: #8d351a; }
 #page-ai .ai-message-error .ai-bubble { border-color: #fecaca; background: #fff1f1; color: #a02828; }
+.ai-markdown { overflow-wrap: anywhere; word-break: normal; }
+.ai-markdown > :first-child { margin-top: 0; }
+.ai-markdown > :last-child { margin-bottom: 0; }
+.ai-markdown p { margin: 0 0 10px; }
+.ai-markdown h2, .ai-markdown h3, .ai-markdown h4, .ai-markdown h5, .ai-markdown h6 { margin: 17px 0 7px; color: var(--app-ink); line-height: 1.4; letter-spacing: -.015em; }
+.ai-markdown h2, .ai-markdown h3 { font-size: 15px; }
+.ai-markdown h4 { font-size: 14px; }
+.ai-markdown h5, .ai-markdown h6 { font-size: 13px; }
+.ai-markdown ul, .ai-markdown ol { margin: 7px 0 11px; padding-left: 21px; }
+.ai-markdown li { margin: 4px 0; padding-left: 2px; }
+.ai-markdown li::marker { color: var(--app-brand); font-weight: 700; }
+.ai-markdown blockquote { margin: 10px 0; padding: 8px 11px; border-left: 3px solid #f3a186; border-radius: 0 8px 8px 0; background: #fff7f3; color: #6f483a; }
+.ai-markdown blockquote p { margin: 0; }
+.ai-markdown code { padding: 1px 5px; border-radius: 5px; background: #e8edf3; color: #26384f; font: 600 .92em/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.ai-markdown pre { max-width: 100%; margin: 10px 0; overflow-x: auto; padding: 10px; border-radius: 9px; background: #172033; color: #e8edf5; }
+.ai-markdown pre code { padding: 0; background: transparent; color: inherit; white-space: pre; }
+.ai-markdown a { color: #b63f18; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.ai-markdown hr { height: 1px; margin: 14px 0; border: 0; background: var(--app-line); }
 .ai-loading { display: flex; align-items: center; gap: 4px; }
 .ai-loading span { width: 5px; height: 5px; border-radius: 50%; background: var(--app-brand); animation: ai-dot .9s ease-in-out infinite; }
 .ai-loading span:nth-child(2) { animation-delay: .12s; }
