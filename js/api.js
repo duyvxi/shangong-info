@@ -898,7 +898,7 @@ const Api = {
    * 向校园 AI 助手提问。前端只发送问题与本地匿名 ID，
    * 不保存聊天正文，也不会接触模型 API 密钥。
    */
-  async askCampusAI(question) {
+  async askCampusAI(question, options = {}) {
     if (!this.isConfigured()) {
       throw new Error('校园助手后端尚未配置');
     }
@@ -922,6 +922,7 @@ const Api = {
         body: JSON.stringify({
           question: String(question || '').trim(),
           clientId: this.getAnonymousId(),
+          context: Array.isArray(options.context) ? options.context : [],
         }),
         signal: controller.signal,
       });
@@ -977,7 +978,7 @@ const Api = {
       throw new Error('当前页面是本地文件模式，浏览器会阻止 AI 请求。请使用项目中的本地预览服务');
     }
     if (!window.AIStream?.consumeResponse) {
-      const result = await this.askCampusAI(question);
+      const result = await this.askCampusAI(question, options);
       handlers.onMeta?.(result);
       if (result.answer) handlers.onDelta?.(result.answer, result.answer);
       handlers.onDone?.(result, result.answer || '');
@@ -1007,6 +1008,7 @@ const Api = {
             question: String(question || '').trim(),
             clientId: this.getAnonymousId(),
             stream: true,
+            context: Array.isArray(options.context) ? options.context : [],
           }),
           signal: controller.signal,
         });

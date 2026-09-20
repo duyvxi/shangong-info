@@ -27,6 +27,7 @@ async function exercise(mode) {
   let usageCalls = 0;
   let usageStatus = '';
   let modelBody;
+  let embeddingInput = '';
   const currentYear = new Date().getUTCFullYear();
   const historicalDoc = {
     id: 'doc-history', slug: `major-transfer-${currentYear}`, title: `${currentYear}年转专业工作安排`, category: '学籍管理',
@@ -68,6 +69,7 @@ async function exercise(mode) {
       : mode === 'historical_reference' ? [historicalDoc]
       : mode === 'multi_intent' ? [multiAnnualDoc, multiPolicyDoc] : [doc]);
     if (url.endsWith('/embeddings')) {
+      embeddingInput = JSON.parse(init.body).input;
       if (mode === 'embedding_failure') throw new Error('offline embedding failure');
       return response({ data: [{ embedding: Array(1024).fill(0.1) }] });
     }
@@ -118,7 +120,13 @@ async function exercise(mode) {
     headers: { apikey: 'mock-public', Origin: 'http://127.0.0.1:4173' },
     body: JSON.stringify({ question: mode === 'historical_reference' ? `${currentYear + 1}年转专业什么时候报名`
       : mode === 'multi_intent' ? `${currentYear}年转专业什么时候申请，需要什么条件和材料？`
-      : '宿舍可以使用哪些电器', clientId: 'test-client-001', stream: streamMode }) }));
+      : mode === 'conversation_followup' ? '那需要什么材料？' : '宿舍可以使用哪些电器',
+      clientId: 'test-client-001', stream: streamMode,
+      context: mode === 'conversation_followup' ? [
+        { question: '第一轮应被移除', answer: '第一轮回答' },
+        { question: '第二轮宿舍规定', answer: '第二轮回答' },
+        { question: '第三轮宿舍电器', answer: '第三轮回答' },
+      ] : [] }) }));
   if (streamMode) {
     assert.equal(result.status, 200);
     assert.match(result.headers.get('Content-Type'), /text\/event-stream/);
@@ -194,6 +202,14 @@ async function exercise(mode) {
       assert.match(modelInput, /片段二/);
       assert.doesNotMatch(modelInput, /片段三/);
     }
+    if (mode === 'conversation_followup') {
+      const modelInput = modelBody.input || modelBody.messages?.[1]?.content || '';
+      assert.doesNotMatch(modelInput, /第一轮应被移除|第一轮回答/);
+      assert.match(modelInput, /第二轮宿舍规定|第二轮回答/);
+      assert.match(modelInput, /第三轮宿舍电器|第三轮回答/);
+      assert.match(modelInput, /当前学生问题：\n那需要什么材料/);
+      assert.match(embeddingInput, /第二轮宿舍规定；第三轮宿舍电器；那需要什么材料/);
+    }
     if (mode === 'embedding_failure') assert.ok(!('vector_rpc' in stages));
     if (mode === 'qwen_thinking_disabled') assert.equal(modelBody.enable_thinking, false);
     if (mode === 'qwen_responses_thinking_disabled') assert.equal(modelBody.enable_thinking, false);
@@ -204,7 +220,7 @@ async function exercise(mode) {
 }
 
 for (const mode of ['success', 'auth_fallback', 'no_match', 'embedding_failure', 'vector_failure', 'model_timeout',
-  'log_failure', 'rate_limit', 'historical_reference', 'multi_intent', 'qwen_thinking_disabled', 'qwen_responses_thinking_disabled',
+  'log_failure', 'rate_limit', 'historical_reference', 'multi_intent', 'conversation_followup', 'qwen_thinking_disabled', 'qwen_responses_thinking_disabled',
   'qwen_thinking_enabled', 'qwen_invalid_thinking', 'stream_success', 'stream_error']) {
   await exercise(mode);
   console.log(`PASS 服务端计时：${mode}`);

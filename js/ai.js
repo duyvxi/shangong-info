@@ -11,6 +11,7 @@
   const recentList = document.getElementById('recent-question-list');
   const clearHistory = document.getElementById('clear-ai-history');
   let currentRequestController = null;
+  const conversation = window.AIConversation?.createSession(2);
 
   if (!messages || !form || !input || !sendButton) return;
 
@@ -90,13 +91,24 @@
     }).join('')}</div>`;
   }
 
-  function addAssistantMessage(answer, sources, isError) {
+  function renderFollowUps(items) {
+    if (!Array.isArray(items) || !items.length) return '';
+    return `<div class="ai-follow-ups" aria-label="继续了解"><span>继续了解</span><div>${items.map((item) =>
+      `<button type="button" data-follow-up="${escapeHtml(item.question)}">${escapeHtml(item.label)}</button>`
+    ).join('')}</div></div>`;
+  }
+
+  function followUpsFor(question, meta = {}) {
+    return window.AIConversation?.buildFollowUps(question, meta.questionDimensions || []) || [];
+  }
+
+  function addAssistantMessage(answer, sources, isError, followUps = []) {
     const wrapper = document.createElement('div');
     wrapper.className = `ai-message ai-message-assistant${isError ? ' ai-message-error' : ''}`;
     const answerHtml = isError
       ? escapeHtml(answer).replace(/\n/g, '<br>')
       : window.SafeMarkdown?.render(answer) || escapeHtml(answer).replace(/\n/g, '<br>');
-    wrapper.innerHTML = `<div class="ai-message-label">${isError ? '暂未查到' : 'AI 值班台'}</div><div class="ai-bubble${isError ? '' : ' ai-markdown'}">${answerHtml}</div>${renderSources(sources)}${isError ? '' : '<div class="ai-answer-actions"><button type="button" data-copy-answer>复制回答</button><span>办理前请核对官方通知</span></div>'}`;
+    wrapper.innerHTML = `<div class="ai-message-label">${isError ? '暂未查到' : 'AI 值班台'}</div><div class="ai-bubble${isError ? '' : ' ai-markdown'}">${answerHtml}</div>${renderSources(sources)}${isError ? '' : `<div class="ai-answer-actions"><button type="button" data-copy-answer>复制回答</button><span>办理前请核对官方通知</span></div>${renderFollowUps(followUps)}`}`;
     messages.appendChild(wrapper);
     wrapper.querySelector('[data-copy-answer]')?.addEventListener('click', async (event) => {
       const plainText = window.SafeMarkdown?.toPlainText(answer) || answer;
@@ -109,12 +121,13 @@
   function addStreamingMessage(initialSources = []) {
     const wrapper = document.createElement('div');
     wrapper.className = 'ai-message ai-message-assistant ai-message-streaming';
-    wrapper.innerHTML = '<div class="ai-message-label">AI 值班台</div><div class="ai-bubble ai-markdown" aria-live="polite"></div><div class="ai-stream-status">正在组织回答…</div><div data-stream-sources></div><div data-stream-actions></div>';
+    wrapper.innerHTML = '<div class="ai-message-label">AI 值班台</div><div class="ai-bubble ai-markdown" aria-live="polite"></div><div class="ai-stream-status">正在组织回答…</div><div data-stream-sources></div><div data-stream-actions></div><div data-stream-follow-ups></div>';
     messages.appendChild(wrapper);
     const bubble = wrapper.querySelector('.ai-bubble');
     const status = wrapper.querySelector('.ai-stream-status');
     const sourceSlot = wrapper.querySelector('[data-stream-sources]');
     const actionSlot = wrapper.querySelector('[data-stream-actions]');
+    const followUpSlot = wrapper.querySelector('[data-stream-follow-ups]');
     let answer = '';
     let renderTimer = null;
     let lastRenderAt = 0;
@@ -159,6 +172,20 @@
         status.remove();
         addActions();
       },
+      setFollowUps(items) { followUpSlot.innerHTML = renderFollowUps(items); },
+      markNoMatch(message) {
+        answer = message || answer;
+        if (renderTimer) clearTimeout(renderTimer);
+        bubble.classList.remove('ai-markdown');
+        bubble.innerHTML = escapeHtml(answer).replace(/\n/g, '<br>');
+        wrapper.classList.remove('ai-message-streaming');
+        wrapper.classList.add('ai-message-error');
+        wrapper.querySelector('.ai-message-label').textContent = '暂未查到';
+        status.remove();
+        sourceSlot.innerHTML = '';
+        actionSlot.innerHTML = '';
+        followUpSlot.innerHTML = '';
+      },
       interrupt(message) {
         if (renderTimer) clearTimeout(renderTimer);
         renderAnswer();
@@ -187,6 +214,7 @@
     currentRequestController = requestController;
     let streamView = null;
     let streamMeta = {};
+    const context = conversation?.getContext() || [];
     const ensureStreamView = () => {
       if (!streamView) {
         loading.remove();
@@ -207,13 +235,19 @@
         onDone(done, fullAnswer) {
           ensureStreamView().finish(fullAnswer, streamMeta.sources || done.sources || []);
         },
-      }, { signal: requestController.signal });
+      }, { signal: requestController.signal, context });
       if (result.noMatch === true) {
         loading.remove();
-        addAssistantMessage(result.answer, result.sources || [], true);
+        if (streamView) streamView.markNoMatch(result.answer);
+        else addAssistantMessage(result.answer, result.sources || [], true);
       } else if (!streamView) {
         loading.remove();
-        addAssistantMessage(result.answer, result.sources || [], false);
+        const followUps = followUpsFor(cleanQuestion, result);
+        conversation?.add(cleanQuestion, result.answer);
+        addAssistantMessage(result.answer, result.sources || [], false, followUps);
+      } else {
+        conversation?.add(cleanQuestion, result.answer);
+        streamView.setFollowUps(followUpsFor(cleanQuestion, streamMeta));
       }
       if (remaining && Number.isFinite(result.remaining)) remaining.textContent = `本小时还可提问 ${result.remaining} 次`;
     } catch (error) {
@@ -238,6 +272,7 @@
   input.addEventListener('input', () => { input.style.height = ''; input.style.height = `${Math.min(input.scrollHeight, 108)}px`; });
   suggestions.addEventListener('click', (event) => { const button = event.target.closest('[data-question]'); if (button) ask(button.dataset.question); });
   recentList.addEventListener('click', (event) => { const button = event.target.closest('[data-recent-question]'); if (button) ask(button.dataset.recentQuestion); });
+  messages.addEventListener('click', (event) => { const button = event.target.closest('[data-follow-up]'); if (button) ask(button.dataset.followUp); });
   clearHistory.addEventListener('click', () => { try { localStorage.removeItem('sdtbu_ai_recent_questions'); } catch (error) {} renderHistory(); });
   window.addEventListener('hashchange', () => {
     if (location.hash !== '#/ai') currentRequestController?.abort();

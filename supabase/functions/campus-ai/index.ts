@@ -58,6 +58,11 @@ type SemanticMatch = {
   metadata?: Record<string, unknown> | null;
 };
 
+type ConversationTurn = {
+  question: string;
+  answer: string;
+};
+
 class CampusAIError extends Error {
   code: string;
 
@@ -92,6 +97,28 @@ function jsonResponse(body: unknown, status: number, origin: string | null) {
     headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   }
   return new Response(JSON.stringify(body), { status, headers });
+}
+
+function sanitizeConversationContext(value: unknown): ConversationTurn[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-2).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const turn = item as Record<string, unknown>;
+    const question = typeof turn.question === "string" ? turn.question.trim().slice(0, 500) : "";
+    const answer = typeof turn.answer === "string" ? turn.answer.trim().slice(0, 2000) : "";
+    return question.length >= 2 && answer ? [{ question, answer }] : [];
+  });
+}
+
+function isContextualFollowUp(question: string, context: ConversationTurn[]) {
+  if (!context.length || question.length > 60) return false;
+  return /^(那|这个|这些|上述|刚才|还|再|其中)|(?:呢|吗|怎么办|怎么申请|什么材料|哪些材料|什么条件|哪些条件|什么时间|什么时候|具体流程|在哪里)[？?]?$/.test(question.trim());
+}
+
+function retrievalQuestion(question: string, context: ConversationTurn[]) {
+  return isContextualFollowUp(question, context)
+    ? [...context.map((turn) => turn.question), question].join("；")
+    : question;
 }
 
 function streamResponse(origin: string | null, producer: (send: (event: string, data: unknown) => void) => Promise<void>) {
@@ -462,6 +489,7 @@ function systemInstructions() {
   return [
     "你是‘山商信息通’内置的校园信息助手，服务山东工商学院学生。",
     "你只能依据本次提供的校园资料作答，不得使用记忆补充学校政策、时间、地点、电话或办理规则。",
+    "最近对话只能帮助理解‘那、这个、还需要什么’等指代，不是事实来源；所有事实仍必须来自本次提供的校园资料。",
     "回答应直接、简洁、适合学生阅读。涉及流程时使用短列表。",
     "每个事实结论后用 [1]、[2] 这样的编号标注对应资料；编号必须来自提供的资料。",
     "资料不足、相互冲突或已经可能过期时，明确说‘现有知识库无法确认’，并建议查看列出的官方来源。",
@@ -570,7 +598,8 @@ async function readModelStream(response: Response, style: string, onDelta: (text
 }
 
 async function callModel(question: string, context: string, clientHash: string,
-  onDelta: ((text: string) => void) | null = null, requestSignal?: AbortSignal) {
+  onDelta: ((text: string) => void) | null = null, requestSignal?: AbortSignal,
+  conversation: ConversationTurn[] = []) {
   const apiKey = env("AI_API_KEY");
   const model = env("AI_MODEL");
   const baseUrl = env("AI_API_BASE_URL", "https://api.openai.com/v1").replace(/\/$/, "");
@@ -579,7 +608,10 @@ async function callModel(question: string, context: string, clientHash: string,
   if (!apiKey || !model) throw new Error("AI_API_KEY 或 AI_MODEL 尚未配置");
   if (!["responses", "chat_completions"].includes(style)) throw new Error("AI_API_STYLE 配置无效");
 
-  const userInput = `学生问题：\n${question}\n\n可用校园资料：\n${context}`;
+  const conversationText = conversation.length
+    ? conversation.map((turn, index) => `第${index + 1}轮学生问题：${turn.question}\n第${index + 1}轮助手回答：${turn.answer}`).join("\n\n")
+    : "无";
+  const userInput = `最近对话（仅用于理解指代，不是事实来源）：\n${conversationText}\n\n当前学生问题：\n${question}\n\n可用校园资料：\n${context}`;
   const body: Record<string, unknown> = style === "responses"
     ? {
         model,
@@ -717,6 +749,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
     const question = String(payload?.question || "").trim();
     const clientId = String(payload?.clientId || "").trim();
     const wantsStream = payload?.stream === true;
+    const conversation = sanitizeConversationContext(payload?.context);
     if (question.length < 2 || question.length > 500) {
       return jsonResponse({ error: "问题长度需要在 2～500 个字符之间" }, 400, origin);
     }
@@ -750,7 +783,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
         let retrievalCount = 0;
         try {
           const documents = await timing.measure("knowledge", () => fetchKnowledge());
-          const retrieval = await retrieveKnowledge(question, documents, timing);
+          const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), documents, timing);
           const matches = retrieval.matches;
           retrievalCount = matches.length;
           if (matches.length === 0) {
@@ -785,7 +818,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
             callModel(question, modelContext, clientHash, (delta) => {
               streamedAnswer += delta;
               send("delta", { text: delta });
-            }, request.signal)
+            }, request.signal, conversation)
           );
           await timing.measure("usage_log", () => logUsage({
             client_hash: clientHash,
@@ -823,7 +856,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
     }
 
     const documents = await timing.measure("knowledge", () => fetchKnowledge());
-    const retrieval = await retrieveKnowledge(question, documents, timing);
+    const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), documents, timing);
     const matches = retrieval.matches;
     if (matches.length === 0) {
       await timing.measure("unanswered_log", () => recordUnansweredQuestion(question));
@@ -848,7 +881,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
 
     const sources = responseSources(matches);
     const modelContext = buildContext(matches, retrieval.today, retrieval.dimensions);
-    const result = await timing.measure("model", () => callModel(question, modelContext, clientHash));
+    const result = await timing.measure("model", () => callModel(question, modelContext, clientHash, null, undefined, conversation));
 
     await timing.measure("usage_log", () => logUsage({
       client_hash: clientHash,
