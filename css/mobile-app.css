@@ -162,6 +162,10 @@ body.mobile-app [hidden] { display: none !important; }
 .ai-markdown pre code { padding: 0; background: transparent; color: inherit; white-space: pre; }
 .ai-markdown a { color: #b63f18; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 .ai-markdown hr { height: 1px; margin: 14px 0; border: 0; background: var(--app-line); }
+.ai-message-streaming .ai-bubble:empty { min-width: 96px; min-height: 42px; }
+.ai-stream-status { margin: 6px 0 0 4px; color: var(--app-muted); font-size: 11px; }
+.ai-message-streaming.has-stream-text .ai-stream-status::before { content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 6px; border-radius: 50%; background: var(--app-brand); animation: ai-dot .9s ease-in-out infinite; vertical-align: 1px; }
+.ai-message-interrupted .ai-stream-status { color: #a4512f; }
 .ai-loading { display: flex; align-items: center; gap: 4px; }
 .ai-loading span { width: 5px; height: 5px; border-radius: 50%; background: var(--app-brand); animation: ai-dot .9s ease-in-out infinite; }
 .ai-loading span:nth-child(2) { animation-delay: .12s; }
@@ -366,6 +370,6 @@ body.mobile-app :focus-visible { outline: 3px solid rgba(250,84,28,.25); outline
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-page.is-active, .ai-loading span { animation: none; }
+  .app-page.is-active, .ai-loading span, .ai-message-streaming.has-stream-text .ai-stream-status::before { animation: none; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }

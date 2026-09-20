@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "collection": "校园 AI 回答质量固定评测集 v1",
+  "reviewed_at": "2026-09-19",
+  "description": "24 道公开校园问题。required_points 用于检查回答和召回资料是否覆盖关键事实；不包含个人信息。",
+  "cases": [
+    {
+      "id": "annual-01",
+      "category": "年度时间",
+      "question": "2026年转专业什么时候报名？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["official-major-transfer-notice-2026"]],
+      "required_points": [
+        { "label": "开始时间", "any": ["2026年4月23日", "4月23日"] },
+        { "label": "截止时间", "any": ["2026年4月27日14时", "4月27日14时"] }
+      ],
+      "forbidden": ["2014年77号"]
+    },
+    {
+      "id": "annual-02",
+      "category": "年度时间",
+      "question": "2026年转专业考核、公示和审批分别在什么时候？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["official-major-transfer-notice-2026"]],
+      "required_points": [
+        { "label": "考核时间", "any": ["4月30日—5月20日", "4月30日至5月20日"] },
+        { "label": "公示时间", "any": ["5月下旬"] },
+        { "label": "审批时间", "any": ["6月上旬"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "annual-03",
+      "category": "年度时间",
+      "question": "新生错过录取通知书规定的报到时间怎么办？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["xinsheng-baodao"]],
+      "required_points": [
+        { "label": "延期申请", "any": ["书面申请", "申请延期"] },
+        { "label": "逾期后果", "any": ["逾期两周", "两周不报到"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "annual-04",
+      "category": "年度时间",
+      "question": "四六级通常什么时候报名，在哪里报名？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["cet-baoming"]],
+      "required_points": [
+        { "label": "报名月份", "any": ["3月", "9月"] },
+        { "label": "报名入口", "any": ["cet-bm.neea.edu.cn", "全国大学英语四六级考试报名网站"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "annual-05",
+      "category": "年度时间",
+      "question": "计算机等级考试一般什么时候报名和考试？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["ncre-baoming"]],
+      "required_points": [
+        { "label": "报名月份", "any": ["1月和7月", "1月 / 7月"] },
+        { "label": "考试月份", "any": ["3月和9月", "3月 / 9月"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "annual-06",
+      "category": "年度时间",
+      "question": "2027年寒假什么时候开始和结束？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["manual-calendar-2026-2027-semester-1"]],
+      "required_points": [
+        { "label": "开始日期", "any": ["2027年1月18日", "1月18日"] },
+        { "label": "结束日期", "any": ["2027年2月28日", "2月28日"] },
+        { "label": "资料性质", "any": ["学生整理", "仅供参考"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "condition-01",
+      "category": "资格条件",
+      "question": "普通转专业适用于哪个年级，有哪些基本条件？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["official-major-transfer-policy-2024"]],
+      "required_points": [
+        { "label": "适用年级", "any": ["大学一年级", "大一"] },
+        { "label": "学籍条件", "any": ["已注册学籍"] },
+        { "label": "处分条件", "any": ["未受过警告及以上处分", "没有受过警告及以上处分"] },
+        { "label": "综合测评", "any": ["综合测评在合格以上"] }
+      ],
+      "forbidden": ["本（专）科学生转专业学习管理规定"]
+    },
+    {
+      "id": "condition-02",
+      "category": "资格条件",
+      "question": "哪些情况不能申请转专业？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["official-major-transfer-policy-2024"]],
+      "required_points": [
+        { "label": "招生类别限制", "any": ["跨招生录取类别", "不能跨招生录取类别", "跨招生类别"] },
+        { "label": "入学时长限制", "any": ["入学未满一学期"] },
+        { "label": "休学限制", "any": ["休学、保留学籍期间", "处于休学"] },
+        { "label": "再次转专业限制", "any": ["已办理过转专业", "已经办理过转专业", "再次提出转专业"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "condition-03",
+      "category": "资格条件",
+      "question": "四级多少分以后可以报六级？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["cet-baoming"]],
+      "required_points": [
+        { "label": "分数要求", "any": ["425分", "425 分"] },
+        { "label": "课程要求", "any": ["修完六级课程"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "condition-04",
+      "category": "资格条件",
+      "question": "什么情况下可以申请校外住宿？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["xiaowai-zhusu"]],
+      "required_points": [
+        { "label": "家庭距离", "any": ["家庭所在地距校较近"] },
+        { "label": "健康原因", "any": ["不宜在集体宿舍居住"] },
+        { "label": "未成年限制", "any": ["未满18周岁", "未满 18 周岁"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "condition-05",
+      "category": "资格条件",
+      "question": "宿舍能不能用超过100W的电器？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["sushe-dianqi-yaoqiu"]],
+      "required_points": [
+        { "label": "功率红线", "any": ["超过100w", "超过 100w", "100w以上"] },
+        { "label": "例外", "any": ["饮水机除外"] },
+        { "label": "处理", "any": ["收缴并登记", "予以收缴"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "condition-06",
+      "category": "资格条件",
+      "question": "家庭经济困难学生可以申请哪些资助？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["xuefei-zizhu"]],
+      "required_points": [
+        { "label": "贷款", "any": ["生源地助学贷款"] },
+        { "label": "绿色通道", "any": ["绿色通道"] },
+        { "label": "其他支持", "any": ["奖助学金", "勤工助学", "学费减免"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "process-01",
+      "category": "材料流程",
+      "question": "2026年正常转专业要交什么，接下来有哪些步骤？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["official-major-transfer-notice-2026"], ["official-major-transfer-policy-2024"]],
+      "required_points": [
+        { "label": "申请材料", "any": ["正常情况转专业申请表", "申请及证明材料"] },
+        { "label": "专业数量", "any": ["只能选择1个专业", "只能选择 1 个专业", "每人限选1个专业", "每名申请人只能选择1个专业"] },
+        { "label": "考核", "any": ["笔试", "面试"] },
+        { "label": "公示", "any": ["公示期不少于5个工作日", "公示期不少于 5 个工作日", "公示不少于5个工作日", "名单公示不少于5个工作日"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "process-02",
+      "category": "材料流程",
+      "question": "在读证明怎么开，需要带什么？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["zaidu-zhengming"]],
+      "required_points": [
+        { "label": "模板", "any": ["在读证明模板"] },
+        { "label": "学院审核", "any": ["学院", "审核"] },
+        { "label": "审批单", "any": ["用印审批单"] },
+        { "label": "盖章时间", "any": ["周二、周四上午", "周二/周四上午"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "process-03",
+      "category": "材料流程",
+      "question": "网上选课从哪里进入，分哪几个阶段？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["xuanke-liucheng"]],
+      "required_points": [
+        { "label": "入口", "any": ["智慧山商", "教务系统"] },
+        { "label": "预选", "any": ["第一阶段", "预选"] },
+        { "label": "限名额", "any": ["第二阶段", "限名额"] },
+        { "label": "补选", "any": ["第三阶段", "补选"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "process-04",
+      "category": "材料流程",
+      "question": "生源地贷款和勤工助学怎么申请，有什么限制？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["qinong-zhuxue"]],
+      "required_points": [
+        { "label": "关注通知", "any": ["学生资助服务中心"] },
+        { "label": "工时限制", "any": ["每月不超过40小时", "每月不超过 40 小时"] },
+        { "label": "岗位限制", "any": ["一人一岗"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "multi-01",
+      "category": "多意图",
+      "question": "2026年转专业什么时候申请，需要什么条件和材料？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["official-major-transfer-notice-2026"], ["official-major-transfer-policy-2024"]],
+      "required_points": [
+        { "label": "申请时间", "any": ["4月23日", "4月27日14时"] },
+        { "label": "适用年级", "any": ["大学一年级", "大一"] },
+        { "label": "基本条件", "any": ["已注册学籍", "未受过警告及以上处分"] },
+        { "label": "材料", "any": ["申请表", "证明材料"] }
+      ],
+      "forbidden": ["本（专）科学生转专业学习管理规定"]
+    },
+    {
+      "id": "multi-02",
+      "category": "多意图",
+      "question": "宿舍哪些电器不能用，被发现后会怎么处理？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["sushe-dianqi-yaoqiu"]],
+      "required_points": [
+        { "label": "功率标准", "any": ["100w"] },
+        { "label": "典型违禁品", "any": ["电炉", "电饭锅", "热得快"] },
+        { "label": "处理方式", "any": ["收缴并登记", "违纪"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "multi-03",
+      "category": "多意图",
+      "question": "补考没过怎么办，成绩不满意能重修吗？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["xuefen-leixing"]],
+      "required_points": [
+        { "label": "补考后处理", "any": ["补考后仍不及格", "可以重修"] },
+        { "label": "成绩不满意", "any": ["对成绩不满意可重修", "成绩不满意"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "multi-04",
+      "category": "多意图",
+      "question": "图书馆借阅区几点开门，综合服务台在哪？",
+      "expected_behavior": "answer",
+      "required_source_groups": [["tushuguan-shijian"]],
+      "required_points": [
+        { "label": "借阅区时间", "any": ["7:00–22:00", "7:00-22:00"] },
+        { "label": "服务台位置", "any": ["二楼中厅"] },
+        { "label": "服务台时间", "any": ["7:50–22:00", "7:50-22:00"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "history-01",
+      "category": "历史参考",
+      "question": "2027年转专业大概什么时候报名？",
+      "expected_behavior": "historical_reference",
+      "required_source_groups": [["official-major-transfer-notice-2026"]],
+      "required_points": [
+        { "label": "未发布说明", "any": ["2027年通知尚未", "现有知识库无法确认"] },
+        { "label": "参考年份", "any": ["2026年"] },
+        { "label": "参考标签", "any": ["仅供参考", "往年参考"] }
+      ],
+      "forbidden": ["2027年4月23日"]
+    },
+    {
+      "id": "history-02",
+      "category": "历史参考",
+      "question": "明年转专业是不是也在4月底？",
+      "expected_behavior": "historical_reference",
+      "required_source_groups": [["official-major-transfer-notice-2026"]],
+      "required_points": [
+        { "label": "不能确认", "any": ["不能确认", "尚未发布", "尚未收录"] },
+        { "label": "往年日期", "any": ["2026年4月23日", "2026年"] },
+        { "label": "参考限制", "any": ["仅供参考", "仅作为历史参考", "不能作为明年安排", "不能直接等同于明年的安排"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "abstain-01",
+      "category": "无依据克制",
+      "question": "2027级新生会被分到哪一栋宿舍？",
+      "expected_behavior": "abstain",
+      "required_source_groups": [],
+      "required_points": [
+        { "label": "明确无法确认", "any": ["无法确认", "尚未公布", "尚未收录"] }
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "abstain-02",
+      "category": "无依据克制",
+      "question": "明天上午图书馆三楼一定有空座吗？",
+      "expected_behavior": "abstain",
+      "required_source_groups": [],
+      "required_points": [
+        { "label": "明确无法确认", "any": ["无法确认", "不能保证", "没有实时"] }
+      ],
+      "forbidden": ["一定有空座"]
+    }
+  ]
+}

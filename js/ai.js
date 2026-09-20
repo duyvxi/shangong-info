@@ -10,6 +10,7 @@
   const recentSection = document.getElementById('recent-questions');
   const recentList = document.getElementById('recent-question-list');
   const clearHistory = document.getElementById('clear-ai-history');
+  let currentRequestController = null;
 
   if (!messages || !form || !input || !sendButton) return;
 
@@ -105,6 +106,71 @@
     scrollMessages();
   }
 
+  function addStreamingMessage(initialSources = []) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ai-message ai-message-assistant ai-message-streaming';
+    wrapper.innerHTML = '<div class="ai-message-label">AI 值班台</div><div class="ai-bubble ai-markdown" aria-live="polite"></div><div class="ai-stream-status">正在组织回答…</div><div data-stream-sources></div><div data-stream-actions></div>';
+    messages.appendChild(wrapper);
+    const bubble = wrapper.querySelector('.ai-bubble');
+    const status = wrapper.querySelector('.ai-stream-status');
+    const sourceSlot = wrapper.querySelector('[data-stream-sources]');
+    const actionSlot = wrapper.querySelector('[data-stream-actions]');
+    let answer = '';
+    let renderTimer = null;
+    let lastRenderAt = 0;
+    let hasVisibleText = false;
+
+    sourceSlot.innerHTML = renderSources(initialSources);
+    const renderAnswer = () => {
+      renderTimer = null;
+      lastRenderAt = performance.now();
+      bubble.innerHTML = window.SafeMarkdown?.render(answer) || escapeHtml(answer).replace(/\n/g, '<br>');
+      if (!hasVisibleText && answer) {
+        hasVisibleText = true;
+        wrapper.classList.add('has-stream-text');
+      }
+      scrollMessages();
+    };
+    const scheduleRender = (fullAnswer) => {
+      answer = fullAnswer;
+      const wait = Math.max(0, 80 - (performance.now() - lastRenderAt));
+      if (!hasVisibleText || wait === 0) renderAnswer();
+      else if (!renderTimer) renderTimer = setTimeout(renderAnswer, wait);
+    };
+    const addActions = () => {
+      actionSlot.innerHTML = '<div class="ai-answer-actions"><button type="button" data-copy-answer>复制回答</button><span>办理前请核对官方通知</span></div>';
+      actionSlot.querySelector('[data-copy-answer]')?.addEventListener('click', async (event) => {
+        const plainText = window.SafeMarkdown?.toPlainText(answer) || answer;
+        try { await navigator.clipboard.writeText(plainText); event.currentTarget.textContent = '已复制'; }
+        catch (error) { event.currentTarget.textContent = '复制失败'; }
+      });
+    };
+
+    scrollMessages();
+    return {
+      setSources(sources) { sourceSlot.innerHTML = renderSources(sources); },
+      update(fullAnswer) { scheduleRender(fullAnswer); },
+      finish(fullAnswer, sources) {
+        answer = fullAnswer || answer;
+        if (renderTimer) clearTimeout(renderTimer);
+        renderAnswer();
+        if (sources) this.setSources(sources);
+        wrapper.classList.remove('ai-message-streaming');
+        status.remove();
+        addActions();
+      },
+      interrupt(message) {
+        if (renderTimer) clearTimeout(renderTimer);
+        renderAnswer();
+        wrapper.classList.remove('ai-message-streaming');
+        wrapper.classList.add('ai-message-interrupted');
+        status.textContent = message || '回答中断，可重试';
+        addActions();
+      },
+      get hasText() { return Boolean(answer); },
+    };
+  }
+
   async function ask(question) {
     const cleanQuestion = String(question || '').trim();
     if (cleanQuestion.length < 2 || sendButton.disabled) return;
@@ -117,19 +183,51 @@
     input.style.height = '';
     sendButton.disabled = true;
     const loading = addLoadingMessage();
+    const requestController = new AbortController();
+    currentRequestController = requestController;
+    let streamView = null;
+    let streamMeta = {};
+    const ensureStreamView = () => {
+      if (!streamView) {
+        loading.remove();
+        streamView = addStreamingMessage(streamMeta.sources || []);
+      }
+      return streamView;
+    };
 
     try {
-      if (!window.Api?.askCampusAI) throw new Error('校园助手前端尚未完成配置');
-      const result = await window.Api.askCampusAI(cleanQuestion);
-      loading.remove();
-      addAssistantMessage(result.answer, result.sources || [], result.noMatch === true);
+      if (!window.Api?.askCampusAIStream) throw new Error('校园助手前端尚未完成配置');
+      const result = await window.Api.askCampusAIStream(cleanQuestion, {
+        onMeta(meta) {
+          streamMeta = meta || {};
+          ensureStreamView().setSources(streamMeta.sources || []);
+          if (remaining && Number.isFinite(streamMeta.remaining)) remaining.textContent = `本小时还可提问 ${streamMeta.remaining} 次`;
+        },
+        onDelta(_delta, fullAnswer) { ensureStreamView().update(fullAnswer); },
+        onDone(done, fullAnswer) {
+          ensureStreamView().finish(fullAnswer, streamMeta.sources || done.sources || []);
+        },
+      }, { signal: requestController.signal });
+      if (result.noMatch === true) {
+        loading.remove();
+        addAssistantMessage(result.answer, result.sources || [], true);
+      } else if (!streamView) {
+        loading.remove();
+        addAssistantMessage(result.answer, result.sources || [], false);
+      }
       if (remaining && Number.isFinite(result.remaining)) remaining.textContent = `本小时还可提问 ${result.remaining} 次`;
     } catch (error) {
       loading.remove();
-      addAssistantMessage(error.message || '校园助手暂时不可用，请稍后再试。', [], true);
+      if (requestController.signal.aborted && location.hash !== '#/ai') return;
+      if (streamView?.hasText || error.partialAnswer) {
+        streamView?.interrupt('回答中断，可点击“再次提问”重试');
+      } else {
+        addAssistantMessage(error.message || '校园助手暂时不可用，请稍后再试。', [], true);
+      }
     } finally {
+      if (currentRequestController === requestController) currentRequestController = null;
       sendButton.disabled = false;
-      if (!matchMedia('(pointer: coarse)').matches) input.focus();
+      if (location.hash === '#/ai' && !matchMedia('(pointer: coarse)').matches) input.focus();
     }
   }
 
@@ -141,6 +239,10 @@
   suggestions.addEventListener('click', (event) => { const button = event.target.closest('[data-question]'); if (button) ask(button.dataset.question); });
   recentList.addEventListener('click', (event) => { const button = event.target.closest('[data-recent-question]'); if (button) ask(button.dataset.recentQuestion); });
   clearHistory.addEventListener('click', () => { try { localStorage.removeItem('sdtbu_ai_recent_questions'); } catch (error) {} renderHistory(); });
+  window.addEventListener('hashchange', () => {
+    if (location.hash !== '#/ai') currentRequestController?.abort();
+  });
+  window.addEventListener('pagehide', () => currentRequestController?.abort());
 
   renderHistory();
 })();

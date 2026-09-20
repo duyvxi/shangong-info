@@ -75,7 +75,8 @@ assert.doesNotMatch(plain, /<[^>]+>|\*\*|###|https:\/\//);
 const maliciousPlain = markdown.toPlainText('正文<img src=x onerror="bad()"><script>恶意内容</script>结尾');
 assert.equal(maliciousPlain, '正文结尾');
 
-assert.ok(indexSource.indexOf('js/markdown.js?v=20260919-1') < indexSource.indexOf('js/ai.js?v=20260919-1'));
+assert.ok(indexSource.indexOf('js/markdown.js?v=20260919-1') < indexSource.indexOf('js/ai-stream.js?v=20260920-1'));
+assert.ok(indexSource.indexOf('js/ai-stream.js?v=20260920-1') < indexSource.indexOf('js/ai.js?v=20260920-1'));
 assert.match(aiSource, /SafeMarkdown\?\.render\(answer\)/);
 assert.match(aiSource, /SafeMarkdown\?\.toPlainText\(answer\)/);
 for (const selector of ['.ai-markdown p', '.ai-markdown ul', '.ai-markdown blockquote', '.ai-markdown code', '.ai-markdown a']) {

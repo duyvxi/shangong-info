@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chunkDocument, normalizeWhitespace } from './knowledge-chunking.mjs';
@@ -141,6 +141,27 @@ export async function loadKnowledgeFile(filePath) {
   return validateAndPrepare(collection);
 }
 
+export async function loadKnowledgeDirectory(directoryPath) {
+  const directory = directoryPath instanceof URL ? fileURLToPath(directoryPath) : directoryPath;
+  const names = (await readdir(directory))
+    .filter((name) => name.toLowerCase().endsWith('.json'))
+    .sort();
+  if (names.length === 0) fail(`目录中没有 JSON 文件：${directory}`);
+
+  const documents = [];
+  const seen = new Map();
+  for (const name of names) {
+    const filePath = path.join(directory, name);
+    for (const document of await loadKnowledgeFile(filePath)) {
+      const previous = seen.get(document.slug);
+      if (previous) fail(`跨文件 slug 重复：${document.slug}（${previous}、${name}）`);
+      seen.set(document.slug, name);
+      documents.push(document);
+    }
+  }
+  return documents;
+}
+
 function serviceHeaders(secretKey, extra = {}) {
   const headers = { apikey: secretKey, ...extra };
   if (!secretKey.startsWith('sb_secret_')) headers.Authorization = `Bearer ${secretKey}`;
@@ -224,11 +245,12 @@ export async function importDocuments(documents, options) {
 }
 
 async function main() {
-  const defaultFile = fileURLToPath(new URL('../knowledge/student-curated-2026-09.json', import.meta.url));
+  const defaultDirectory = fileURLToPath(new URL('../knowledge/', import.meta.url));
   const fileArgument = process.argv.find((argument) => argument.startsWith('--file='));
-  const filePath = fileArgument ? path.resolve(fileArgument.slice('--file='.length)) : defaultFile;
   const dryRun = process.argv.includes('--dry-run');
-  const documents = await loadKnowledgeFile(filePath);
+  const documents = fileArgument
+    ? await loadKnowledgeFile(path.resolve(fileArgument.slice('--file='.length)))
+    : await loadKnowledgeDirectory(defaultDirectory);
   const result = await importDocuments(documents, {
     projectUrl: String(process.env.SUPABASE_URL || '').replace(/\/$/, ''),
     secretKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
@@ -236,10 +258,10 @@ async function main() {
   });
 
   if (dryRun) {
-    console.log(`PASS 人工知识检查：${documents.length} 篇资料，预计 ${result.totalChunks} 个切片，未连接数据库。`);
+    console.log(`PASS 版本化知识检查：${documents.length} 篇资料，预计 ${result.totalChunks} 个切片，未连接数据库。`);
     return;
   }
-  console.log(`人工知识同步完成：新增 ${result.inserted}，更新 ${result.updated}，未变化 ${result.unchanged}。`);
+  console.log(`版本化知识同步完成：新增 ${result.inserted}，更新 ${result.updated}，未变化 ${result.unchanged}。`);
   if (result.demoted) console.log(`安全处理：${result.demoted} 条已发布资料因内容变化而退回待审核。`);
 }
 

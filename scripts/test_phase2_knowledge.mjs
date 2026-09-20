@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { chunkDocument, contentHash, normalizeWhitespace } from './knowledge-chunking.mjs';
-import { validateAndPrepare } from './import_manual_knowledge.mjs';
+import { loadKnowledgeDirectory, validateAndPrepare } from './import_manual_knowledge.mjs';
 
 assert.equal(normalizeWhitespace('第一行\r\n\r\n\r\n第二行'), '第一行\n\n第二行');
 assert.equal(contentHash('同一内容'), contentHash('同一内容'));
@@ -30,4 +30,14 @@ assert.equal(
   '2026-09-09',
 );
 
-console.log(`PASS 第二阶段知识切片测试：生成 ${chunks.length} 个长文切片，校验 ${manualDocuments.length} 篇人工资料。`);
+const allVersionedDocuments = await loadKnowledgeDirectory(new URL('../knowledge/', import.meta.url));
+assert.equal(allVersionedDocuments.length, 19);
+const transferPolicy = allVersionedDocuments.find((document) => document.slug === 'official-major-transfer-policy-2024');
+const transferNotice = allVersionedDocuments.find((document) => document.slug === 'official-major-transfer-notice-2026');
+assert.equal(transferPolicy?.metadata.document_role, 'policy');
+assert.equal(transferPolicy?.metadata.supersedes, '院发〔2014〕77号');
+assert.equal(transferNotice?.metadata.document_role, 'annual_notice');
+assert.equal(transferNotice?.metadata.application_window_status, 'closed');
+assert.equal(transferNotice?.effective_until, '2026-12-31');
+
+console.log(`PASS 第二阶段知识切片测试：生成 ${chunks.length} 个长文切片，校验 ${allVersionedDocuments.length} 篇版本化资料。`);

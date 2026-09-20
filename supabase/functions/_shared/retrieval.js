@@ -11,7 +11,8 @@ export function normalizeText(value) {
     .trim();
 }
 export function tokenize(value) {
-  const normalized = normalizeText(value);
+  // 校名在校园问题里几乎总会出现，不应让所有标题带校名的资料一起加分。
+  const normalized = normalizeText(value).replace(/山东工商学院|山商/g, ' ');
   if (!normalized) return [];
 
   const tokens = new Set();

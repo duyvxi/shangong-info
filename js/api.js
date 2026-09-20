@@ -967,6 +967,86 @@ const Api = {
     return payload;
   },
 
+  /**
+   * 流式提问。服务器不支持流式响应时自动兼容旧 JSON 返回。
+   * handlers 可包含 onMeta、onDelta、onDone 和 onError。
+   */
+  async askCampusAIStream(question, handlers = {}, options = {}) {
+    if (!this.isConfigured()) throw new Error('校园助手后端尚未配置');
+    if (window.location.protocol === 'file:') {
+      throw new Error('当前页面是本地文件模式，浏览器会阻止 AI 请求。请使用项目中的本地预览服务');
+    }
+    if (!window.AIStream?.consumeResponse) {
+      const result = await this.askCampusAI(question);
+      handlers.onMeta?.(result);
+      if (result.answer) handlers.onDelta?.(result.answer, result.answer);
+      handlers.onDone?.(result, result.answer || '');
+      return result;
+    }
+
+    const endpoint = `${SUPABASE_CONFIG.url}/functions/v1/campus-ai`;
+    const controller = new AbortController();
+    const externalSignal = options.signal;
+    let timedOut = false;
+    const abortFromCaller = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) abortFromCaller();
+    else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
+    const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, 70000);
+
+    try {
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            apikey: SUPABASE_CONFIG.anonKey,
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream, application/json',
+          },
+          body: JSON.stringify({
+            question: String(question || '').trim(),
+            clientId: this.getAnonymousId(),
+            stream: true,
+          }),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          if (externalSignal?.aborted && !timedOut) throw error;
+          throw new Error('校园助手响应超时，请稍后重试');
+        }
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          throw new Error('当前设备处于离线状态，请联网后重试');
+        }
+        throw new Error('浏览器无法访问校园助手服务。请检查网络代理、防火墙或浏览器拦截扩展后重试');
+      }
+
+      const contentType = response.headers.get('Content-Type') || '';
+      if (!contentType.includes('text/event-stream')) {
+        let payload = {};
+        try { payload = await response.json(); }
+        catch (error) { throw new Error('校园助手返回了无法识别的响应'); }
+        if (!response.ok) {
+          const requestError = new Error(payload.error || '校园助手暂时不可用');
+          requestError.status = response.status;
+          requestError.resetAt = payload.resetAt || null;
+          throw requestError;
+        }
+        if (payload.noMatch === true) return payload;
+        handlers.onMeta?.(payload);
+        if (payload.answer) handlers.onDelta?.(payload.answer, payload.answer);
+        handlers.onDone?.(payload, payload.answer || '');
+        return payload;
+      }
+
+      if (!response.ok) throw new Error('校园助手暂时不可用');
+      return await window.AIStream.consumeResponse(response, handlers);
+    } finally {
+      clearTimeout(timeoutId);
+      externalSignal?.removeEventListener('abort', abortFromCaller);
+    }
+  },
+
   // ==========================================
   // 站点配置 (Site Settings)
   // ==========================================

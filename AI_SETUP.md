@@ -1,5 +1,7 @@
 # AI 校园助手部署说明
 
+性能分段计时、固定题测试和验收步骤见 [docs/AI_PERFORMANCE.md](docs/AI_PERFORMANCE.md)。回答完整度、来源和时效评测见 [docs/AI_QUALITY_BASELINE.md](docs/AI_QUALITY_BASELINE.md)。2026-09-19 已完成 v23 的 30 题线上基线、v24 的 10 题初测和 v25 的 10 题修正版对照；M3 受控历史参考已部署为 v29，M4 多意图检索已部署为 v31，M5 安全 Markdown 已发布到 GitHub Pages。2026-09-20 完成 M6 流式输出并部署为 v33：成功基线样本首段文字中位数 2.604 秒、完整回答中位数 6.667 秒，桌面和手机真实复测均通过。v25 在线确认 Responses API 的思考已关闭，完整响应中位数 6.815 秒、P95 10.719 秒，较 v23 分别下降 81.54% 和 81.05%。真实测试会消耗配额并写入日志。
+
 当前第一阶段采用：Supabase 私有知识表 + 服务端关键词检索 + 可替换大模型 API。
 模型只接收本次检索到的少量校园资料，浏览器不会接触模型密钥。
 
@@ -11,7 +13,9 @@
 - `supabase-ai-phase2.sql`：知识来源、知识切片、向量检索与未回答问题。
 - `scripts/sync_knowledge.mjs`：把 `js/data.js` 同步到知识表。
 - `scripts/reindex_knowledge.mjs`：拆分已发布资料并生成向量。
+- `scripts/publish_reviewed_knowledge.ps1`：隐藏输入高权限密钥，依次导入已核验知识、生成向量并启动获授权的质量基线。
 - `supabase/functions/campus-ai/index.ts`：检索与模型调用接口。
+- `js/ai-stream.js`：浏览器端流式事件解析与完成/中断处理。
 - `js/ai.js`：移动端 AI 助手页面。
 
 ## 本地预览
@@ -45,6 +49,7 @@ node .\scripts\dev-server.mjs
 | `AI_REQUEST_LIMIT` | 每个匿名浏览器每小时额度，建议先填 `12` |
 | `AI_ALLOWED_ORIGINS` | `https://duyvxi.github.io,https://dgtzddf-2lxcnmk2.edgeone.cool,https://tgfhjvhcvasgdiusfgfsh-4egfid21.edgeone.cool`（多个正式域名用英文逗号分隔，不要加结尾 `/`；本机 localhost/127.0.0.1 的任意端口已自动允许） |
 | `AI_MODEL_TIMEOUT_MS` | 可选；等待模型的毫秒数，默认 `55000`，允许范围 `10000`～`90000` |
+| `AI_ENABLE_THINKING` | 可选；`true` 开启、`false` 关闭。未填写时仅对百炼 `qwen3.5-*` 默认关闭，Responses 和 Chat Completions 均支持；其他供应商或模型不发送此扩展参数 |
 | `AI_EMBEDDING_ENABLED` | 第二阶段填 `true`；如需临时关闭语义检索可填 `false` |
 | `AI_EMBEDDING_MODEL` | 推荐 `text-embedding-v4` |
 | `AI_EMBEDDING_DIMENSIONS` | 必须填 `1024`，需要与数据库字段维度一致 |

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { importDocuments, validateAndPrepare } from './import_manual_knowledge.mjs';
+import { importDocuments, loadKnowledgeDirectory, validateAndPrepare } from './import_manual_knowledge.mjs';
 
 const collection = JSON.parse(await readFile(new URL('../knowledge/student-curated-2026-09.json', import.meta.url), 'utf8'));
 const documents = validateAndPrepare(collection);
+const allDocuments = await loadKnowledgeDirectory(new URL('../knowledge/', import.meta.url));
+assert.equal(allDocuments.length, 19);
+assert.equal(new Set(allDocuments.map((document) => document.slug)).size, allDocuments.length);
 const sameDocument = documents[0];
 const changedDocument = documents[1];
 const requests = [];
