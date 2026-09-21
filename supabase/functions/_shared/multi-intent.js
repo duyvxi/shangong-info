@@ -1,4 +1,4 @@
-import { normalizeText, scoreDocument } from './retrieval.js';
+import { normalizeText, scoreDocument, topicMatchesQuestion } from './retrieval.js';
 
 const DIMENSION_RULES = [
   ['时间', /20\d{2}\s*年|什么时候|几月|日期|时间|截止|开始|结束|报名|开放|几点|多久|哪天|\d{1,2}\s*月/],
@@ -40,15 +40,18 @@ export function retrievalSignalBoost(question, document, today = shanghaiToday()
   const targetYear = explicitQuestionYear(question) || Number(today.slice(0, 4));
   const query = normalizeText(question);
   const title = normalizeText(document.title);
+  const baseScore = scoreDocument(question, document);
+  if (baseScore < 2) return 0;
+  const topicRelevant = topicMatchesQuestion(question, document);
   let boost = 0;
 
   // scoreDocument 已对完整标题匹配显著加权；这里补充来源、年份、角色和核验时效。
   if (document.source_type === 'official_notice' || document?.metadata?.source_class === 'official') boost += 2;
   if (title && (query.includes(title) || title.includes(query))) boost += 4;
-  if (role === 'annual_notice' && dimensions.includes('时间')) boost += 3;
-  if (role === 'annual_notice' && Number.isInteger(noticeYear)) boost += noticeYear === targetYear ? 6 : -4;
-  if (role === 'policy' && dimensions.includes('条件')) boost += 5;
-  if (role === 'policy' && dimensions.some((item) => ['材料', '流程'].includes(item))) boost += 2;
+  if (topicRelevant && role === 'annual_notice' && dimensions.includes('时间')) boost += 3;
+  if (topicRelevant && role === 'annual_notice' && Number.isInteger(noticeYear)) boost += noticeYear === targetYear ? 6 : -4;
+  if (topicRelevant && role === 'policy' && dimensions.includes('条件')) boost += 5;
+  if (topicRelevant && role === 'policy' && dimensions.some((item) => ['材料', '流程'].includes(item))) boost += 2;
   boost += verifiedBoost(document, today);
   return Number(boost.toFixed(3));
 }
@@ -126,15 +129,17 @@ export function fuseDocumentMatches(keywordMatches, semanticMatches, limit = 8) 
     .slice(0, limit);
 }
 
-export function diversifyDocumentMatches(matches, dimensions, limit = 5) {
+export function diversifyDocumentMatches(matches, dimensions, limit = 5, question = '') {
   const selected = [];
   const add = (document) => {
     if (document && !selected.some((item) => item.slug === document.slug)) selected.push(document);
   };
   const needsAnnual = dimensions.includes('时间');
   const needsPolicy = dimensions.some((item) => ['条件', '材料', '流程'].includes(item));
-  if (needsAnnual) add(matches.find((document) => document?.metadata?.document_role === 'annual_notice'));
-  if (needsPolicy) add(matches.find((document) => document?.metadata?.document_role === 'policy'));
+  if (needsAnnual) add(matches.find((document) => document?.metadata?.document_role === 'annual_notice'
+    && topicMatchesQuestion(question, document)));
+  if (needsPolicy) add(matches.find((document) => document?.metadata?.document_role === 'policy'
+    && topicMatchesQuestion(question, document)));
   const selectedTopics = new Set(selected.map((document) => document?.metadata?.topic_key).filter(Boolean));
   const candidates = selectedTopics.size === 1
     ? matches.filter((document) => selectedTopics.has(document?.metadata?.topic_key))

@@ -51,6 +51,41 @@ const contradictoryClaim = evaluateAnswers([abstainCase], [{
 assert.equal(contradictoryClaim.summary.complete_case_rate, 0);
 assert.equal(contradictoryClaim.summary.forbidden_claim_cases, 1);
 
+const conditionCases = dataset.cases.filter((item) => ['condition-02', 'condition-04'].includes(item.id));
+const equivalentPhrases = evaluateAnswers(conditionCases, [
+  {
+    id: 'condition-02',
+    answer: '申请转入专业与原专业属于不同的招生录取类别时不能申请；入学未满一学期、处于休学期间或已经办理过转专业也不能申请。[1]',
+    sources: [{ slug: 'official-major-transfer-policy-2024' }],
+  },
+  {
+    id: 'condition-04',
+    answer: '家距离学校较近，或因疾病不宜在集体宿舍居住时可以申请；未满18周岁原则上不得申请。[1]',
+    sources: [{ slug: 'xiaowai-zhusu' }],
+  },
+]);
+assert.equal(equivalentPhrases.summary.complete_case_rate, 1);
+
+const calibratedCases = dataset.cases.filter((item) => ['process-01', 'process-04', 'multi-04'].includes(item.id));
+const calibratedPhrases = evaluateAnswers(calibratedCases, [
+  {
+    id: 'process-01',
+    answer: '提交正常情况转专业申请表；每名学生限选 1 个专业，之后参加笔试和面试，名单公示不少于5个工作日。[1][2]',
+    sources: [{ slug: 'official-major-transfer-notice-2026' }, { slug: 'official-major-transfer-policy-2024' }],
+  },
+  {
+    id: 'process-04',
+    answer: '关注学生资助服务中心通知；勤工助学一人一岗，每月勤工工作时间原则上不超过 40 小时。[1]',
+    sources: [{ slug: 'qinong-zhuxue' }],
+  },
+  {
+    id: 'multi-04',
+    answer: '图书馆借阅区开放时间是7:00–22:00，综合服务台位于二楼中厅。[1]',
+    sources: [{ slug: 'tushuguan-shijian' }],
+  },
+]);
+assert.equal(calibratedPhrases.summary.complete_case_rate, 1);
+
 const requested = [];
 const mocked = await requestCase({
   endpoint: 'https://example.invalid/functions/v1/campus-ai',
@@ -72,6 +107,30 @@ assert.equal(requested[0].question, caseOne.question);
 assert.equal(requested[0].clientId, 'quality-test-client');
 assert.equal(mocked.outcome, 'ok');
 assert.equal(mocked.sources[0].slug, 'official-major-transfer-notice-2026');
+
+const streamed = await requestCase({
+  endpoint: 'https://example.invalid/functions/v1/campus-ai',
+  publicKey: 'public-test-key',
+  clientId: 'quality-test-client',
+  testCase: caseOne,
+  stream: true,
+  fetchImpl: async (_url, init) => {
+    assert.equal(JSON.parse(init.body).stream, true);
+    return new Response([
+      ': connected',
+      'event: meta\ndata: {"sources":[{"slug":"official-major-transfer-notice-2026","title":"通知","sourceType":"official_notice"}],"remaining":10}',
+      'event: delta\ndata: {"text":"报名时间是2026年4月23日"}',
+      'event: delta\ndata: {"text":"至4月27日14时。[1]"}',
+      'event: done\ndata: {"answer":"报名时间是2026年4月23日至4月27日14时。[1]","remaining":10,"modelApiStyle":"responses","modelThinking":"disabled","timing":{"total":20}}',
+      '',
+    ].join('\n\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } });
+  },
+});
+assert.equal(streamed.outcome, 'ok');
+assert.equal(streamed.answer, '报名时间是2026年4月23日至4月27日14时。[1]');
+assert.equal(streamed.sources[0].slug, 'official-major-transfer-notice-2026');
+assert.ok(Number.isFinite(streamed.first_text_ms));
+assert.equal(streamed.server_timing.total, 20);
 
 const limited = await requestCase({
   endpoint: 'https://example.invalid/functions/v1/campus-ai',

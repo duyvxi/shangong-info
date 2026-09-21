@@ -1,6 +1,6 @@
 # AI 校园助手部署说明
 
-性能分段计时、固定题测试和验收步骤见 [docs/AI_PERFORMANCE.md](docs/AI_PERFORMANCE.md)。回答完整度、来源和时效评测见 [docs/AI_QUALITY_BASELINE.md](docs/AI_QUALITY_BASELINE.md)。2026-09-19 已完成 v23 的 30 题线上基线、v24 的 10 题初测和 v25 的 10 题修正版对照；M3 受控历史参考已部署为 v29，M4 多意图检索已部署为 v31，M5 安全 Markdown 已发布到 GitHub Pages。2026-09-20 完成 M6 流式输出并部署为 v33：成功基线样本首段文字中位数 2.604 秒、完整回答中位数 6.667 秒，桌面和手机真实复测均通过。v25 在线确认 Responses API 的思考已关闭，完整响应中位数 6.815 秒、P95 10.719 秒，较 v23 分别下降 81.54% 和 81.05%。真实测试会消耗配额并写入日志。
+性能分段计时、固定题测试和验收步骤见 [docs/AI_PERFORMANCE.md](docs/AI_PERFORMANCE.md)。回答完整度、来源和时效评测见 [docs/AI_QUALITY_BASELINE.md](docs/AI_QUALITY_BASELINE.md)。M1 至 M8 已完成，最终线上函数为 v35。M8 的 24 道固定题达到 24/24 完整通过，关键点、引用、历史资料标注和无依据克制均为 100%；首段文字中位数 2.073 秒，完整回答中位数 7.458 秒，流式中断为 0。完整对照见 [docs/AI_M8_FINAL_REPORT.md](docs/AI_M8_FINAL_REPORT.md)。真实测试会消耗配额并写入日志。
 
 M7 已完成并部署为 v34：前端只在当前页面内存保留最近两轮，不写入数据库或浏览器存储；明显追问会携带受限上下文，服务端仍只把已审核校园资料作为事实依据。真实两轮追问已确认上下文从 0 增至 1，材料追问正常返回来源且无中断。
 

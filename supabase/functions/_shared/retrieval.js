@@ -58,6 +58,17 @@ export function scoreDocument(question, document) {
   return Number(score.toFixed(3));
 }
 
+const TOPIC_PATTERNS = {
+  'major-transfer': /转专业|转系|专业调整|专业变更/,
+};
+
+export function topicMatchesQuestion(question, document) {
+  const topicKey = String(document?.metadata?.topic_key || '').trim();
+  if (!topicKey) return true;
+  if (TOPIC_PATTERNS[topicKey]) return TOPIC_PATTERNS[topicKey].test(String(question || ''));
+  return scoreDocument(question, { ...document, summary: '', content: '' }) >= 2;
+}
+
 export function rankDocuments(question, documents, limit = 5) {
   return documents
     .map((document) => ({ ...document, retrieval_score: scoreDocument(question, document) }))

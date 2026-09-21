@@ -6,7 +6,7 @@ import { createTimings } from '../supabase/functions/_shared/timing.js';
 import { historicalReferenceMeta, selectKnowledgeScope } from '../supabase/functions/_shared/historical.js';
 import { applicationWindowState, composeDocumentContent, detectQuestionDimensions, diversifyDocumentMatches,
   fuseDocumentMatches, rankDocumentsWithSignals, shanghaiToday } from '../supabase/functions/_shared/multi-intent.js';
-import { normalizeText, rankDocuments } from '../supabase/functions/_shared/retrieval.js';
+import { normalizeText, rankDocuments, topicMatchesQuestion } from '../supabase/functions/_shared/retrieval.js';
 import { parseTiming, runBenchmark, summarize } from './benchmark_campus_ai.mjs';
 
 let clock = 0;
@@ -110,7 +110,7 @@ async function exercise(mode) {
   const context = vm.createContext({
     createTimings: () => createTimings(() => ticks), historicalReferenceMeta, selectKnowledgeScope,
     applicationWindowState, composeDocumentContent, detectQuestionDimensions, diversifyDocumentMatches,
-    fuseDocumentMatches, rankDocumentsWithSignals, shanghaiToday, normalizeText, rankDocuments,
+    fuseDocumentMatches, rankDocumentsWithSignals, shanghaiToday, normalizeText, rankDocuments, topicMatchesQuestion,
     Request, Response, Headers, URL, TextEncoder, TextDecoder, ReadableStream, crypto, AbortController, DOMException,
     setTimeout, clearTimeout, fetch: fakeFetch, console: { warn() {}, error() {} },
     Deno: { env: { get: (name) => settings[name] }, serve: (callback) => { handler = callback; } },

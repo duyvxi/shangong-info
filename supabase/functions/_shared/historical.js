@@ -1,4 +1,4 @@
-import { rankDocuments } from './retrieval.js';
+import { rankDocuments, topicMatchesQuestion } from './retrieval.js';
 
 const ANNUAL_INTENT = /什么时候|几月|日期|时间|报名|安排|通知|截止|开始|开放/;
 const MONTH_INTENT = /\d{1,2}\s*月/;
@@ -49,7 +49,9 @@ export function selectKnowledgeScope(question, documents, today = shanghaiToday(
     return { currentDocuments: activeDocuments, historicalDocuments: [], requestedYear: null, topicKey: null };
   }
 
-  const eligibleNotices = documents.filter(isApprovedHistoricalNotice);
+  const eligibleNotices = documents.filter((document) =>
+    isApprovedHistoricalNotice(document) && topicMatchesQuestion(question, document)
+  );
   // 只用标题和分类识别主题，避免“报名、时间”等通用词从正文中误选其他事项。
   const topicMatch = rankDocuments(question, eligibleNotices.map((document) => ({
     ...document,

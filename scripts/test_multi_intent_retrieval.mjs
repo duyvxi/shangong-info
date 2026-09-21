@@ -52,7 +52,7 @@ assert.match(policyContext, /片段一/);
 assert.match(policyContext, /片段二/);
 assert.doesNotMatch(policyContext, /片段三/);
 
-const diversified = diversifyDocumentMatches([guide, ...fused], detectQuestionDimensions(question), 5);
+const diversified = diversifyDocumentMatches([guide, ...fused], detectQuestionDimensions(question), 5, question);
 assert.ok(diversified.some((item) => item.metadata?.document_role === 'annual_notice'));
 assert.ok(diversified.some((item) => item.metadata?.document_role === 'policy'));
 assert.equal(new Set(diversified.map((item) => item.slug)).size, diversified.length);
@@ -84,6 +84,7 @@ const officialMatches = diversifyDocumentMatches(
   fuseDocumentMatches(officialRanked, officialSemantic, 8),
   detectQuestionDimensions(question),
   5,
+  question,
 );
 const officialContext = officialMatches.map((item) => composeDocumentContent(item)).join('\n');
 assert.ok(officialMatches.some((item) => item.slug === officialAnnual.slug));
@@ -91,5 +92,15 @@ assert.ok(officialMatches.some((item) => item.slug === officialPolicy.slug));
 for (const expected of ['4月23日', '大学一年级', '已注册学籍', '申请表', '只能选择1个专业', '笔试', '面试', '公示不少于5个工作日']) {
   assert.match(officialContext, new RegExp(expected), `真实资料上下文缺少：${expected}`);
 }
+
+const unrelatedQuestion = '宿舍能不能用超过100W的电器？';
+const unrelatedMatches = diversifyDocumentMatches(
+  rankDocumentsWithSignals(unrelatedQuestion, [guide, policy, annual], 5, today),
+  detectQuestionDimensions(unrelatedQuestion),
+  5,
+  unrelatedQuestion,
+);
+assert.ok(!unrelatedMatches.some((document) => document.slug.includes('transfer')),
+  '宿舍条件问题不得因“条件”维度强行混入转专业政策');
 
 console.log('PASS M4 多意图检索：维度识别、角色分散、双切片、去重、加权和窗口状态均正常。');

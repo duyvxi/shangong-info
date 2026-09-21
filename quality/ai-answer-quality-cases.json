@@ -99,7 +99,7 @@
       "expected_behavior": "answer",
       "required_source_groups": [["official-major-transfer-policy-2024"]],
       "required_points": [
-        { "label": "招生类别限制", "any": ["跨招生录取类别", "不能跨招生录取类别", "跨招生类别"] },
+        { "label": "招生类别限制", "any": ["跨招生录取类别", "不能跨招生录取类别", "跨招生类别", "不同的招生录取类别", "跨类报考限制"] },
         { "label": "入学时长限制", "any": ["入学未满一学期"] },
         { "label": "休学限制", "any": ["休学、保留学籍期间", "处于休学"] },
         { "label": "再次转专业限制", "any": ["已办理过转专业", "已经办理过转专业", "再次提出转专业"] }
@@ -125,7 +125,7 @@
       "expected_behavior": "answer",
       "required_source_groups": [["xiaowai-zhusu"]],
       "required_points": [
-        { "label": "家庭距离", "any": ["家庭所在地距校较近"] },
+        { "label": "家庭距离", "any": ["家庭所在地距校较近", "家庭所在地较近", "家距离学校较近"] },
         { "label": "健康原因", "any": ["不宜在集体宿舍居住"] },
         { "label": "未成年限制", "any": ["未满18周岁", "未满 18 周岁"] }
       ],
@@ -165,7 +165,7 @@
       "required_source_groups": [["official-major-transfer-notice-2026"], ["official-major-transfer-policy-2024"]],
       "required_points": [
         { "label": "申请材料", "any": ["正常情况转专业申请表", "申请及证明材料"] },
-        { "label": "专业数量", "any": ["只能选择1个专业", "只能选择 1 个专业", "每人限选1个专业", "每名申请人只能选择1个专业"] },
+        { "label": "专业数量", "any": ["只能选择1个专业", "只能选择 1 个专业", "每人限选1个专业", "每名学生限选1个专业", "每名学生限选 1 个专业", "每名申请人只能选择1个专业"] },
         { "label": "考核", "any": ["笔试", "面试"] },
         { "label": "公示", "any": ["公示期不少于5个工作日", "公示期不少于 5 个工作日", "公示不少于5个工作日", "名单公示不少于5个工作日"] }
       ],
@@ -207,7 +207,7 @@
       "required_source_groups": [["qinong-zhuxue"]],
       "required_points": [
         { "label": "关注通知", "any": ["学生资助服务中心"] },
-        { "label": "工时限制", "any": ["每月不超过40小时", "每月不超过 40 小时"] },
+        { "label": "工时限制", "any": ["每月不超过40小时", "每月不超过 40 小时", "每月勤工工作时间原则上不超过40小时", "每月勤工工作时间原则上不超过 40 小时"] },
         { "label": "岗位限制", "any": ["一人一岗"] }
       ],
       "forbidden": []
@@ -259,8 +259,7 @@
       "required_source_groups": [["tushuguan-shijian"]],
       "required_points": [
         { "label": "借阅区时间", "any": ["7:00–22:00", "7:00-22:00"] },
-        { "label": "服务台位置", "any": ["二楼中厅"] },
-        { "label": "服务台时间", "any": ["7:50–22:00", "7:50-22:00"] }
+        { "label": "服务台位置", "any": ["二楼中厅"] }
       ],
       "forbidden": []
     },

@@ -424,6 +424,7 @@ async function retrieveKnowledge(question: string, documents: KnowledgeDocument[
     fuseDocumentMatches(keywordMatches, semanticMatches, 12),
     dimensions,
     5,
+    question,
   )
     .map((document) => ({ ...document, reference_mode: "current" as const }));
   const historicalMatches = scope.historicalDocuments.map((document) => ({
