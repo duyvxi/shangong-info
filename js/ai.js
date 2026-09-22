@@ -80,7 +80,7 @@
 
   function renderSources(sources) {
     if (!Array.isArray(sources) || !sources.length) return '';
-    return `<div class="ai-sources"><div class="ai-sources-heading"><span>本次参考</span><b>${sources.length} 条资料</b></div>${sources.map((source, index) => {
+    const cards = sources.map((source, index) => {
       const number = String(source.index || index + 1).padStart(2, '0');
       const date = source.verifiedAt ? `核实于 ${String(source.verifiedAt).slice(0, 10)}` : source.sourceDate ? `资料日期 ${source.sourceDate}` : '本站整理资料';
       const url = safeHttpUrl(source.url);
@@ -88,12 +88,13 @@
       const tag = sourceTags[source.sourceType] || (url ? '参考链接' : '整理资料');
       const inner = `<span class="ai-source-index">${number}</span><span class="ai-source-copy"><b>${escapeHtml(source.title)}</b><small><i></i>${escapeHtml(tag)} · ${escapeHtml(date)}</small></span><span class="ai-source-arrow">↗</span>`;
       return url ? `<a class="ai-source-card" href="${escapeHtml(url)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="ai-source-card ai-source-card-static">${inner}</div>`;
-    }).join('')}</div>`;
+    }).join('');
+    return `<details class="ai-sources"><summary class="ai-sources-heading"><span>本次参考</span><span class="ai-sources-summary"><b>${sources.length} 条资料</b><i aria-hidden="true">⌄</i></span></summary><div class="ai-source-list">${cards}</div></details>`;
   }
 
   function renderFollowUps(items) {
     if (!Array.isArray(items) || !items.length) return '';
-    return `<div class="ai-follow-ups" aria-label="继续了解"><span>继续了解</span><div>${items.map((item) =>
+    return `<div class="ai-follow-ups" aria-label="继续了解"><div class="ai-follow-ups-heading"><span>继续了解</span><b>按需补充</b></div><div>${items.map((item) =>
       `<button type="button" data-follow-up="${escapeHtml(item.question)}">${escapeHtml(item.label)}</button>`
     ).join('')}</div></div>`;
   }

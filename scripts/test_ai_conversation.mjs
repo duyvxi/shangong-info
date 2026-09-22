@@ -43,6 +43,6 @@ assert.doesNotMatch(source, /localStorage|sessionStorage|indexedDB/);
 assert.match(apiSource, /context: Array\.isArray\(options\.context\) \? options\.context : \[\]/);
 assert.match(aiSource, /AIConversation\?\.createSession\(2\)/);
 assert.match(aiSource, /data-follow-up/);
-assert.ok(indexSource.indexOf('js/ai-conversation.js?v=20260920-1') < indexSource.indexOf('js/ai.js?v=20260920-2'));
+assert.ok(indexSource.indexOf('js/ai-conversation.js?v=20260920-1') < indexSource.indexOf('js/ai.js?v=20260922-1'));
 
 console.log('PASS M7 页面内存：仅保留最近两轮，跟进按钮按问题类型生成，未使用浏览器存储。');
