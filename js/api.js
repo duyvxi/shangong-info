@@ -804,41 +804,68 @@ const Api = {
     return true;
   },
 
-  async getKnowledgeDocuments({ limit = 100, status = 'all' } = {}) {
-    if (!this.isConfigured() || !supabaseClient) return [];
+  async getKnowledgeDocuments({ page, limit, status, sourceType, category, search, validity, sort, today, horizon }) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('Supabase 未配置');
     let query = supabaseClient
       .from('knowledge_documents')
-      .select('id,title,category,summary,canonical_url,source_url,source_date,status,source_type,last_crawled_at,updated_at,metadata')
-      .order('updated_at', { ascending: false })
-      .limit(limit);
-    if (status && status !== 'all') query = query.eq('status', status);
-    const { data, error } = await query;
+      .select('id,slug,title,category,source_type,verified_at,effective_from,effective_until,status,metadata,last_review', { count: 'exact' });
+    if (status !== 'all') query = query.eq('status', status);
+    if (sourceType !== 'all') query = query.eq('source_type', sourceType);
+    if (category) query = query.eq('category', category);
+    // 转义搜索内容，避免特殊字符被解释为筛选语法或通配符。
+    if (search) {
+      const pattern = `%${search.replace(/[%_\\*]/g, '\\$&')}%`.replace(/["\\]/g, '\\$&');
+      query = query.or(`title.ilike."${pattern}",slug.ilike."${pattern}"`);
+    }
+    if (validity === 'expired') query = query.lt('effective_until', today);
+    if (validity === 'upcoming') query = query.gt('effective_from', today);
+    if (validity === 'permanent') query = query.is('effective_until', null);
+    if (validity === 'soon') {
+      query = query.gte('effective_until', today).lte('effective_until', horizon)
+        .or(`effective_from.is.null,effective_from.lte.${today}`);
+    }
+    if (sort === 'expiry') query = query.order('effective_until', { ascending: true, nullsFirst: false });
+    const start = page * limit;
+    const { data, count, error } = await query.order('updated_at', { ascending: false })
+      .order('id').range(start, start + limit - 1);
     if (error) throw error;
-    return data || [];
+    return { documents: data || [], count: count || 0 };
   },
 
-  async updateKnowledgeDocumentStatus(documentId, status) {
-    if (!this.isConfigured() || !supabaseClient) throw new Error('请先配置 Supabase 后端凭证');
-    if (!['draft', 'published', 'archived'].includes(status)) throw new Error('无效的知识审核状态');
-    const now = new Date().toISOString();
-    const payload = {
-      status,
-      verified_at: status === 'published' ? now : null,
-      updated_at: now,
-    };
-    const { error } = await supabaseClient
+  async getKnowledgeDocument(documentId) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('Supabase 未配置');
+    const { data, error } = await supabaseClient
       .from('knowledge_documents')
-      .update(payload)
-      .eq('id', documentId);
+      .select('id,slug,title,category,summary,content,source_type,source_url,canonical_url,source_date,verified_at,effective_from,effective_until,status,metadata,updated_at,revision,last_review,previous_version')
+      .eq('id', documentId).maybeSingle();
     if (error) throw error;
-    return true;
+    if (!data) throw new Error('资料不存在，或当前账号无法读取');
+    return data;
+  },
+
+  async reviewKnowledgeDocument(document, action, review) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('Supabase 未配置');
+    const { data, error } = await supabaseClient.rpc('review_knowledge_document', {
+      p_id: document.id,
+      p_revision: document.revision,
+      p_updated_at: document.updated_at,
+      p_status: document.status,
+      p_action: action,
+      p_audience: review.audience,
+      p_evidence: review.evidence,
+      p_note: review.note,
+      p_public_confirmed: review.publicConfirmed,
+    });
+    if (error) throw error;
+    if (!data?.id) throw new Error('未收到保存确认，请重新读取资料核对结果');
+    return data;
   },
 
   async getUnansweredQuestions({ limit = 100, status = 'open' } = {}) {
     if (!this.isConfigured() || !supabaseClient) return [];
     let query = supabaseClient
       .from('unanswered_questions')
-      .select('id,sample_question,topic,ask_count,status,first_asked_at,last_asked_at,resolved_at,resolution_document_id')
+      .select('id,sample_question,topic,ask_count,status,first_asked_at,last_asked_at,resolved_at,resolution_document_id,metadata')
       .order('ask_count', { ascending: false })
       .order('last_asked_at', { ascending: false })
       .limit(limit);
@@ -850,15 +877,24 @@ const Api = {
 
   async updateUnansweredQuestion(questionId, status) {
     if (!this.isConfigured() || !supabaseClient) throw new Error('请先配置 Supabase 后端凭证');
-    if (!['open', 'reviewing', 'resolved', 'ignored'].includes(status)) throw new Error('无效的处理状态');
+    if (!['open', 'reviewing', 'ignored'].includes(status)) throw new Error('无效的处理状态');
     const payload = {
       status,
-      resolved_at: status === 'resolved' ? new Date().toISOString() : null,
+      resolved_at: null,
       updated_at: new Date().toISOString(),
     };
     const { error } = await supabaseClient.from('unanswered_questions').update(payload).eq('id', questionId);
     if (error) throw error;
     return true;
+  },
+
+  async resolveKnowledgeGap(question, { slug, cause, result }) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('Supabase 未配置');
+    const { data, error } = await supabaseClient.rpc('resolve_knowledge_gap', {
+      p_id: question.id, p_status: question.status, p_slug: slug, p_cause: cause, p_result: result,
+    });
+    if (error) throw error;
+    if (!data) throw new Error('未收到结单确认，请刷新列表核对');
   },
 
   async getKnowledgeOverview() {
@@ -868,7 +904,7 @@ const Api = {
     const [sources, documents, chunks, questions] = await Promise.all([
       supabaseClient.from('knowledge_sources').select('id', { count: 'exact', head: true }).eq('enabled', true),
       supabaseClient.from('knowledge_documents').select('id', { count: 'exact', head: true }).eq('status', 'published'),
-      supabaseClient.from('knowledge_chunks').select('id', { count: 'exact', head: true }).eq('embedding_status', 'ready'),
+      supabaseClient.from('knowledge_chunks').select('id', { count: 'exact', head: true }).eq('embedding_status', 'ready').not('document_revision', 'is', null),
       supabaseClient.from('unanswered_questions').select('id', { count: 'exact', head: true }).eq('status', 'open'),
     ]);
     const firstError = [sources.error, documents.error, chunks.error, questions.error].find(Boolean);

@@ -77,7 +77,7 @@ async function createEmbeddings(inputs) {
 }
 
 const documents = await supabaseRequest(
-  'knowledge_documents?select=id,slug,title,category,content,source_url,canonical_url,status&status=eq.published&order=updated_at.asc&limit=1000'
+  'knowledge_documents?select=id,slug,title,category,content,status,revision&status=eq.published&order=updated_at.asc&limit=1000'
 );
 
 let totalChunks = 0;
@@ -91,7 +91,7 @@ for (const document of documents || []) {
   }
 
   const existingChunks = await supabaseRequest(
-    `knowledge_chunks?select=chunk_index,content_hash,embedding_model,embedding_status&document_id=eq.${encodeURIComponent(document.id)}&order=chunk_index.asc`
+    `knowledge_chunks?select=chunk_index,content_hash,embedding_model,embedding_status,document_revision&document_id=eq.${encodeURIComponent(document.id)}&order=chunk_index.asc`
   );
   const existingByIndex = new Map((existingChunks || []).map((chunk) => [chunk.chunk_index, chunk]));
   const preparedChunks = chunks.map((chunk) => {
@@ -105,6 +105,7 @@ for (const document of documents || []) {
   const pendingChunks = preparedChunks.filter((chunk) => {
     const existing = existingByIndex.get(chunk.chunk_index);
     return !existing
+      || existing.document_revision !== document.revision
       || existing.content_hash !== chunk.content_hash
       || existing.embedding_model !== embeddingModel
       || existing.embedding_status !== 'ready';
@@ -125,6 +126,7 @@ for (const document of documents || []) {
       const { embeddingInput: _, ...storedChunk } = chunk;
       chunkRows.push({
         document_id: document.id,
+        document_revision: document.revision,
         ...storedChunk,
         embedding: vectors[offset],
         embedding_model: embeddingModel,
@@ -137,17 +139,24 @@ for (const document of documents || []) {
   }
 
   if (chunkRows.length) {
-    await supabaseRequest('knowledge_chunks?on_conflict=document_id,chunk_index', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Prefer: 'resolution=merge-duplicates,return=minimal',
-      },
-      body: JSON.stringify(chunkRows),
-    });
+    try {
+      await supabaseRequest('knowledge_chunks?on_conflict=document_id,chunk_index', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify(chunkRows),
+      });
+    } catch (error) {
+      if (!error.message.includes('KNOWLEDGE_INDEX_CHANGED')) throw error;
+      console.log(`[skip] ${document.slug}: 正文或发布状态已更新，等待下次索引`);
+      continue;
+    }
   }
 
-  await supabaseRequest(`knowledge_chunks?document_id=eq.${encodeURIComponent(document.id)}&chunk_index=gte.${chunks.length}`, {
+  // 仅清理本版本多出的片段，不触碰其他任务刚写入的新版本。
+  await supabaseRequest(`knowledge_chunks?document_id=eq.${encodeURIComponent(document.id)}&document_revision=eq.${encodeURIComponent(document.revision)}&chunk_index=gte.${chunks.length}`, {
     method: 'DELETE',
     headers: { Prefer: 'return=minimal' },
   });

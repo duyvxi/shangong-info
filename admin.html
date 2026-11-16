@@ -60,6 +60,25 @@
     .knowledge-form label { display:grid; gap:5px; font-size:12px; font-weight:700; color:#475569; }
     .knowledge-form input, .knowledge-form select { min-width:0; padding:9px 10px; border:1px solid var(--border); border-radius:6px; font:inherit; background:#fff; }
     .knowledge-note { margin:-6px 0 16px; font-size:12px; line-height:1.7; color:#64748b; }
+    .knowledge-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; align-items:end; }
+    .knowledge-filters label, .knowledge-review-input { display:grid; gap:5px; font-size:13px; font-weight:600; }
+    .knowledge-filters input, .knowledge-filters select, .knowledge-review-input input, .knowledge-review-input textarea { min-width:0; padding:8px; border:1px solid var(--border); border-radius:6px; font:inherit; background:#fff; }
+    .knowledge-table-wrap { overflow-x:auto; }
+    .knowledge-pagination, .knowledge-review-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+    .knowledge-pagination[hidden] { display:none; }
+    .knowledge-status { min-height:1.4em; margin:8px 0; font-size:13px; }
+    .knowledge-status[data-error] { color:#b91c1c; }
+    .knowledge-detail { box-sizing:border-box; width:min(760px,calc(100% - 24px)); max-height:calc(100dvh - 24px); overflow:auto; overscroll-behavior:contain; border:1px solid var(--border); border-radius:12px; padding:20px; color:var(--text); }
+    .knowledge-detail::backdrop { background:rgb(15 23 42 / 55%); }
+    .knowledge-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .knowledge-detail h3 { margin:0; overflow-wrap:anywhere; }
+    .knowledge-detail h4 { margin-bottom:6px; }
+    .knowledge-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px 16px; margin:12px 0; }
+    .knowledge-facts dt { font-size:12px; color:#475569; }
+    .knowledge-facts dd { margin:2px 0 0; overflow-wrap:anywhere; }
+    .knowledge-body { white-space:pre-wrap; overflow-wrap:anywhere; max-height:32vh; overflow:auto; padding:10px; margin:4px 0 16px; border:1px solid var(--border); border-radius:6px; background:#f8fafc; }
+    .knowledge-review-input { margin:10px 0; }
+    .knowledge-review-input textarea { resize:vertical; }
     @media (max-width: 760px) {
       .admin-wrap { margin-top:14px; }
       .knowledge-form { grid-template-columns:1fr; }
@@ -298,11 +317,26 @@
         </table>
 
         <h3 style="margin-top:28px;">📝 AI 知识审核</h3>
-        <p class="knowledge-note">这里同时显示官网采集内容和人工整理资料。发生变化的已发布资料会自动退回“待审核”；核对来源、时效和正文后再发布，下一次自动任务会补齐语义向量。</p>
-        <table class="admin-table">
-          <thead><tr><th>状态</th><th>标题</th><th>分类</th><th>发布日期</th><th>来源</th><th>更新时间</th><th>操作</th></tr></thead>
-          <tbody id="tbl-knowledge-documents"><tr><td colspan="7" style="text-align:center;">数据加载中...</td></tr></tbody>
-        </table>
+        <p class="knowledge-note">先在详情核对原文、适用对象和公开范围。通过审核后可按关键词检索，定时任务再补齐按意思搜索所需的数据。</p>
+        <form class="knowledge-filters" id="knowledge-filters">
+          <label>标题或编号<input id="knowledge-search" type="search" maxlength="100"></label>
+          <label>审核状态<select id="knowledge-status"><option value="draft">待审核</option><option value="all">全部</option><option value="published">已发布</option><option value="archived">已归档</option></select></label>
+          <label>资料时效<select id="knowledge-validity"><option value="all">全部</option><option value="soon">将到期（30 天内）</option><option value="expired">已过期</option><option value="upcoming">尚未生效</option><option value="permanent">无到期日</option></select></label>
+          <label>来源类型<select id="knowledge-source-type"><option value="all">全部</option><option value="official_notice">官方通知</option><option value="curated">本站整理</option><option value="manual">学生整理</option></select></label>
+          <label>分类<input id="knowledge-category" list="knowledge-categories" maxlength="80"><datalist id="knowledge-categories"></datalist></label>
+          <label>排序<select id="knowledge-sort"><option value="updated">最近更新</option><option value="expiry">最早到期</option></select></label>
+          <button class="btn btn-primary btn-sm" type="submit">筛选</button>
+        </form>
+        <p class="knowledge-status" id="knowledge-list-status" role="status"></p>
+        <div class="knowledge-table-wrap"><table class="admin-table">
+          <thead><tr><th>标题 / 分类</th><th>来源</th><th>审核 / 时效</th><th>适用对象</th><th>最近核验</th><th>到期日</th><th>操作</th></tr></thead>
+          <tbody id="tbl-knowledge-documents"></tbody>
+        </table></div>
+        <div class="knowledge-pagination" id="knowledge-pagination" hidden>
+          <button class="btn-action" id="knowledge-prev" type="button">上一页</button>
+          <span id="knowledge-page"></span>
+          <button class="btn-action" id="knowledge-next" type="button">下一页</button>
+        </div>
 
         <h3 style="margin-top:28px;">🕒 最近采集任务</h3>
         <table class="admin-table">
@@ -367,9 +401,41 @@
     </div>
   </div>
 
+  <dialog id="knowledge-detail" class="knowledge-detail" aria-labelledby="knowledge-detail-title">
+    <div class="knowledge-detail-head"><h3 id="knowledge-detail-title">资料详情</h3><button class="btn-action" id="knowledge-close" type="button" autofocus>关闭</button></div>
+    <p id="knowledge-detail-status" class="knowledge-status" role="status" tabindex="-1"></p>
+    <button class="btn-action" id="knowledge-reload" type="button" hidden>重新读取资料</button>
+    <div id="knowledge-detail-content" hidden></div>
+    <form id="knowledge-review-form" hidden>
+      <h4>审核与复核</h4>
+      <label class="knowledge-review-input">适用对象<input id="knowledge-audience" maxlength="200" placeholder="例如：西校区学生"></label>
+      <label class="knowledge-review-input">核验出处<input id="knowledge-evidence" maxlength="500" placeholder="原文网址、公告名称或现场公示位置"></label>
+      <label class="knowledge-review-input">处理备注<textarea id="knowledge-review-note" maxlength="500" rows="2" placeholder="记录核对结果、退审原因或归档原因"></textarea></label>
+      <label><input type="checkbox" id="knowledge-public">已核对正文和适用对象，并确认资料可以公开</label>
+      <div class="knowledge-review-actions" id="knowledge-review-actions"></div>
+    </form>
+  </dialog>
+
+  <dialog id="gap-resolution" class="knowledge-detail" aria-labelledby="gap-resolution-title">
+    <form id="gap-resolution-form">
+      <div class="knowledge-detail-head"><h3 id="gap-resolution-title">记录复测并结单</h3><button id="gap-resolution-close" class="btn-action" type="button">关闭</button></div>
+      <p id="gap-resolution-question"></p>
+      <label class="knowledge-review-input">问题原因<select id="gap-resolution-cause" required><option value="">请选择</option><option value="missing">资料缺失</option><option value="expired">资料过期</option><option value="retrieval">已有资料未检索到</option></select></label>
+      <label class="knowledge-review-input">已发布的资料编号<input id="gap-resolution-slug" required maxlength="120"></label>
+      <label class="knowledge-review-input">用原问题复测的结果<textarea id="gap-resolution-result" required maxlength="500" rows="3"></textarea></label>
+      <p id="gap-resolution-status" class="knowledge-status" role="status"></p>
+      <button class="btn-action btn-success" type="submit">保存并结单</button>
+    </form>
+  </dialog>
+
   <script src="js/data.js"></script>
-  <script src="js/api.js?v=20260906-2"></script>
+  <script src="js/api.js?v=20261116-1"></script>
+  <script src="js/admin-knowledge.js?v=20261116-1"></script>
   <script>
+    const questionsById = new Map();
+    const gapStatusLabels = { open: '待处理', reviewing: '处理中', resolved: '已补充', ignored: '已忽略' };
+    const gapCauseLabels = { missing: '资料缺失', expired: '资料过期', retrieval: '已有资料未检索到' };
+
     function escapeHtml(value) {
       return String(value == null ? '' : value).replace(/[&<>'"]/g, (char) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
@@ -702,43 +768,7 @@
       }
 
       // 8. AI 知识审核
-      try {
-        const documents = await window.Api.getKnowledgeDocuments({ status: 'all', limit: 100 });
-        const documentBody = document.getElementById('tbl-knowledge-documents');
-        if (!documents.length) {
-          documentBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">尚无可审核知识，首次运行 GitHub Actions 后会显示在这里</td></tr>';
-        } else {
-          const statusLabels = { draft: '待审核', published: '已发布', archived: '已归档' };
-          documentBody.innerHTML = documents.map(document => {
-            const sourceUrl = safeExternalUrl(document.canonical_url || document.source_url);
-            const sourceTypeNames = { official_notice: '官方通知', manual: '学生整理', curated: '本站整理' };
-            const sourceName = document.metadata?.source_name || sourceTypeNames[document.source_type] || '资料来源未标注';
-            const sourceCell = sourceUrl === '#'
-              ? `<span>${escapeHtml(sourceName)}</span>`
-              : `<a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceName)} →</a>`;
-            const actions = document.status === 'draft'
-              ? `<button class="btn-action btn-success" onclick="reviewKnowledgeDocument('${document.id}', 'published')">审核发布</button>
-                 <button class="btn-action btn-danger" onclick="reviewKnowledgeDocument('${document.id}', 'archived')">忽略</button>`
-              : document.status === 'published'
-              ? `<button class="btn-action" onclick="reviewKnowledgeDocument('${document.id}', 'draft')">退回待审</button>
-                 <button class="btn-action btn-danger" onclick="reviewKnowledgeDocument('${document.id}', 'archived')">归档</button>`
-              : `<button class="btn-action" onclick="reviewKnowledgeDocument('${document.id}', 'draft')">恢复待审</button>`;
-            return `
-              <tr>
-                <td><span class="badge-status ${document.status === 'published' ? 'badge-active' : document.status === 'archived' ? 'badge-banned' : 'badge-todo'}">${escapeHtml(statusLabels[document.status] || document.status)}</span></td>
-                <td style="max-width:360px;"><b>${escapeHtml(document.title)}</b><br><small>${escapeHtml(document.summary || '').slice(0, 120)}</small></td>
-                <td><span class="tag">${escapeHtml(document.category || '校园服务')}</span></td>
-                <td>${escapeHtml(document.source_date || '未识别')}</td>
-                <td>${sourceCell}</td>
-                <td>${document.updated_at ? new Date(document.updated_at).toLocaleString() : '-'}</td>
-                <td style="white-space:nowrap;">${actions}</td>
-              </tr>
-            `;
-          }).join('');
-        }
-      } catch (err) {
-        document.getElementById('tbl-knowledge-documents').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">知识审核列表加载失败：${escapeHtml(err.message)}</td></tr>`;
-      }
+      await window.AdminKnowledge.load();
 
       // 9. 最近采集任务
       try {
@@ -767,6 +797,8 @@
       // 10. AI 未回答问题
       try {
         const questions = await window.Api.getUnansweredQuestions({ status: 'all' });
+        questionsById.clear();
+        questions.forEach(question => questionsById.set(String(question.id), question));
         const questionBody = document.getElementById('tbl-unanswered-questions');
         if (!questions.length) {
           questionBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">目前没有未回答问题</td></tr>';
@@ -777,11 +809,12 @@
               <td><span class="tag">${escapeHtml(question.topic || '其他')}</span></td>
               <td><b>${Number(question.ask_count) || 1}</b> 次</td>
               <td>${new Date(question.last_asked_at).toLocaleString()}</td>
-              <td><span class="badge-status ${question.status === 'resolved' ? 'badge-active' : question.status === 'ignored' ? 'badge-banned' : 'badge-todo'}">${escapeHtml(question.status)}</span></td>
+              <td><span class="badge-status ${question.status === 'resolved' ? 'badge-active' : question.status === 'ignored' ? 'badge-banned' : 'badge-todo'}">${escapeHtml(gapStatusLabels[question.status])}</span>
+                ${question.status === 'resolved' && question.metadata?.resolution ? `<details><summary>复测记录</summary><p>${escapeHtml(gapCauseLabels[question.metadata.resolution.cause])} · ${escapeHtml(question.metadata.resolution.slug)}</p><p>${escapeHtml(question.metadata.resolution.result)}</p></details>` : ''}</td>
               <td style="white-space:nowrap;">
                 ${question.status === 'open' ? `<button class="btn-action" onclick="setQuestionStatus('${question.id}', 'reviewing')">处理中</button>` : ''}
-                ${question.status !== 'resolved' ? `<button class="btn-action btn-success" onclick="setQuestionStatus('${question.id}', 'resolved')">已补充</button>` : ''}
-                ${question.status !== 'ignored' ? `<button class="btn-action btn-danger" onclick="setQuestionStatus('${question.id}', 'ignored')">忽略</button>` : ''}
+                ${['open', 'reviewing'].includes(question.status) ? `<button class="btn-action btn-success" type="button" data-resolve-gap="${escapeHtml(question.id)}">记录复测并结单</button>
+                  <button class="btn-action btn-danger" onclick="setQuestionStatus('${question.id}', 'ignored')">忽略</button>` : ''}
               </td>
             </tr>
           `).join('');
@@ -991,22 +1024,8 @@
       }
     }
 
-    async function reviewKnowledgeDocument(documentId, status) {
-      const labels = { draft: '退回待审核', published: '审核并发布', archived: '归档/忽略' };
-      const extra = status === 'published'
-        ? '发布后 AI 可以检索该内容，语义向量将在下一次自动任务中补齐。'
-        : '该内容将不会用于 AI 回答。';
-      if (!confirm(`确认${labels[status] || status}这条 AI 知识吗？${extra}`)) return;
-      try {
-        await window.Api.updateKnowledgeDocumentStatus(documentId, status);
-        await loadAllAdminData();
-      } catch (err) {
-        alert('知识审核失败：' + err.message);
-      }
-    }
-
     async function setQuestionStatus(questionId, status) {
-      const labels = { reviewing: '处理中', resolved: '已补充', ignored: '忽略' };
+      const labels = { reviewing: '处理中', ignored: '忽略' };
       if (!confirm(`确认将这个问题标记为“${labels[status] || status}”吗？`)) return;
       try {
         await window.Api.updateUnansweredQuestion(questionId, status);
@@ -1015,6 +1034,49 @@
         alert('更新失败：' + err.message);
       }
     }
+
+    const gapDialog = document.getElementById('gap-resolution');
+    const gapForm = document.getElementById('gap-resolution-form');
+    const gapMessage = document.getElementById('gap-resolution-status');
+    const gapClose = document.getElementById('gap-resolution-close');
+    const gapSave = gapForm.querySelector('[type="submit"]');
+    let gapQuestion;
+    document.getElementById('tbl-unanswered-questions').addEventListener('click', (event) => {
+      const trigger = event.target.closest('[data-resolve-gap]');
+      if (!trigger) return;
+      gapQuestion = questionsById.get(trigger.dataset.resolveGap);
+      if (!gapQuestion) return;
+      gapForm.reset();
+      gapMessage.textContent = '';
+      document.getElementById('gap-resolution-question').textContent = gapQuestion.sample_question;
+      gapDialog.showModal();
+      document.getElementById('gap-resolution-cause').focus();
+    });
+    gapClose.addEventListener('click', () => gapDialog.close());
+    gapDialog.addEventListener('cancel', (event) => { if (gapClose.disabled) event.preventDefault(); });
+    gapForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (gapSave.disabled || !gapQuestion) return;
+      gapSave.disabled = gapClose.disabled = true;
+      gapMessage.textContent = '正在保存…';
+      gapMessage.removeAttribute('data-error');
+      try {
+        await window.Api.resolveKnowledgeGap(gapQuestion, {
+          cause: document.getElementById('gap-resolution-cause').value,
+          slug: document.getElementById('gap-resolution-slug').value.trim(),
+          result: document.getElementById('gap-resolution-result').value.trim(),
+        });
+        gapDialog.close();
+        void loadAllAdminData();
+      } catch (error) {
+        gapMessage.setAttribute('data-error', '');
+        gapMessage.textContent = error.message === 'KNOWLEDGE_CONFLICT'
+          ? '问题状态已变，请关闭并刷新清单，再核对复测记录。'
+          : error.code === '22023' ? error.message : '未确认结单成功，请检查权限或网络后重试。';
+      } finally {
+        gapSave.disabled = gapClose.disabled = false;
+      }
+    });
 
     document.getElementById('admin-login-form').addEventListener('submit', handleAdminLogin);
     document.getElementById('knowledge-source-form').addEventListener('submit', handleKnowledgeSourceSubmit);

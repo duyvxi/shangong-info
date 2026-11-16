@@ -14,6 +14,8 @@ import { normalizeText } from "../_shared/retrieval.js";
 
 type KnowledgeDocument = {
   id?: string;
+  revision?: string;
+  reviewed_audience?: string | null;
   slug: string;
   title: string;
   category: string;
@@ -44,6 +46,7 @@ type RetrievalMatch = KnowledgeDocument & {
 type SemanticMatch = {
   chunk_id: string;
   document_id: string;
+  document_revision: string;
   slug: string;
   title: string;
   category: string;
@@ -274,7 +277,7 @@ async function consumeQuota(clientHash: string) {
 }
 
 async function fetchKnowledge(): Promise<KnowledgeDocument[]> {
-  const fields = "id,slug,title,category,summary,content,source_url,source_type,source_date,verified_at,effective_from,effective_until,status,metadata";
+  const fields = "id,revision,reviewed_audience:last_review->>audience,slug,title,category,summary,content,source_url,source_type,source_date,verified_at,effective_from,effective_until,status,metadata";
   const response = await restRequest(
     `knowledge_documents?select=${fields}&status=eq.published&order=updated_at.desc&limit=500`,
   );
@@ -307,6 +310,7 @@ function buildContext(documents: RetrievalMatch[], today: string, dimensions: st
       `[资料 ${index + 1}] ${document.title}`,
       `分类：${document.category}${sourceMeta ? `；${sourceMeta}` : ""}`,
       `资料性质：${sourceKind(document)}`,
+      document.reviewed_audience && `适用对象：${document.reviewed_audience}`,
       windowState && `申请窗口状态：${windowState}`,
       ...referenceRules,
       composeDocumentContent(document),
@@ -403,7 +407,7 @@ async function semanticSearch(question: string, timing: ReturnType<typeof create
 async function retrieveKnowledge(question: string, documents: KnowledgeDocument[], timing: ReturnType<typeof createTimings>) {
   const today = shanghaiToday();
   const dimensions = detectQuestionDimensions(question);
-  const scope = selectKnowledgeScope(question, documents);
+  const scope = selectKnowledgeScope(question, documents, today);
   const keywordMatches = await timing.measure("keyword", () =>
     rankDocumentsWithSignals(question, scope.currentDocuments, 12, today)
   ) as Array<KnowledgeDocument & { retrieval_score: number }>;
@@ -414,11 +418,12 @@ async function retrieveKnowledge(question: string, documents: KnowledgeDocument[
     console.warn("Semantic search failed; continuing with keyword results", error);
   }
   const documentsBySlug = new Map(scope.currentDocuments.map((document) => [document.slug, document]));
-  // RPC 只返回切片字段。这里用经过有效期过滤的文章补回来源性质，
-  // 同时丢弃已过期或尚未生效文章的语义结果。
+  // 读取片段和正文时可能正好换版，只合并与本次读取正文同版本的片段。
   semanticMatches = semanticMatches.flatMap((row) => {
     const document = documentsBySlug.get(row.slug);
-    return document ? [{ ...document, ...row, content: row.content }] : [];
+    return document?.revision && document.revision === row.document_revision
+      ? [{ ...document, ...row, content: row.content }]
+      : [];
   });
   const currentMatches = diversifyDocumentMatches(
     fuseDocumentMatches(keywordMatches, semanticMatches, 12),
@@ -704,6 +709,7 @@ function responseSources(matches: RetrievalMatch[]) {
   return matches.map((document, index) => ({
     index: index + 1,
     slug: document.slug,
+    revision: document.revision || null,
     title: document.title,
     category: document.category,
     url: document.source_url,

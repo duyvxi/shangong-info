@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.dirname(scriptsDirectory);
+const documentRevision = '00000000-0000-0000-0000-000000000002';
+const writtenRevisions = [];
 
 const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
@@ -21,6 +23,7 @@ const server = createServer(async (request, response) => {
       source_url: 'https://www.sdtbu.edu.cn/',
       canonical_url: null,
       status: 'published',
+      revision: documentRevision,
     }]));
     return;
   }
@@ -43,6 +46,9 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'POST' && requestUrl.pathname === '/rest/v1/knowledge_chunks') {
+    let body = '';
+    for await (const part of request) body += part;
+    writtenRevisions.push(...JSON.parse(body).map((row) => row.document_revision));
     response.writeHead(201);
     response.end();
     return;
@@ -87,6 +93,7 @@ try {
   });
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.deepEqual(writtenRevisions, [documentRevision]);
   assert.match(result.stdout, /\[ready\] transport-test: 1 个切片/);
   assert.match(result.stdout, /向量重建完成：1 篇资料，共 1 个切片/);
   console.log('PASS 向量上传空响应测试：201 空响应被正确识别为成功。');

@@ -29,6 +29,12 @@ def run() -> None:
     assert should_queue_url("https://jwc.sdtbu.edu.cn/info/1001/12345.htm", fetcher.allowed_hosts)
     assert not should_queue_url("https://example.com/info/1001/12345.htm", fetcher.allowed_hosts)
     assert not should_queue_url("https://jwc.sdtbu.edu.cn/files/notice.pdf", fetcher.allowed_hosts)
+    start_urls = crawler.source_start_urls({
+        "domain": "jwc.sdtbu.edu.cn",
+        "base_url": "https://jwc.sdtbu.edu.cn/",
+    }, fetcher)
+    assert "https://jwc.sdtbu.edu.cn/jxyx/xjgl.htm" in start_urls
+    assert "https://jwc.sdtbu.edu.cn/jwgl/jxglwj.htm" in start_urls
 
     html = """
     <!doctype html>
@@ -59,6 +65,40 @@ def run() -> None:
     assert "办公室、组织部、宣传部" in document.content
     assert "上一篇" not in document.content
     assert choose_category(document.title, document.content, None) == "团学与创新创业"
+
+    class FakeDatabase:
+        def __init__(self):
+            self.writes = []
+            self.existing = {
+                "slug": "existing-notice",
+                "status": "published",
+                "content_format": "html",
+                "source_date": "2026-08-01",
+                "checksum": crawler.document_checksum(document.title, "团学与创新创业", document.content),
+            }
+
+        def request(self, method, _table, **kwargs):
+            if method == "GET":
+                return [self.existing]
+            self.writes.append((method, kwargs))
+
+    database = FakeDatabase()
+    source = {"id": "test-source", "name": "模拟来源", "requires_review": False}
+    url = "https://jwc.sdtbu.edu.cn/info/1001/12345.htm"
+    original_dry_run = crawler.DRY_RUN
+    try:
+        crawler.DRY_RUN = False
+        # 正文相同、只改发布日期的通知也必须退审。
+        assert crawler.save_document(database, source, url, document) == "updated"
+        method, request = database.writes.pop()
+        assert method == "POST"
+        assert request["payload"]["status"] == "draft"
+        assert request["payload"]["source_date"] == "2026-09-05"
+        database.existing["content_format"] = "manual"
+        assert crawler.save_document(database, source, url, document) == "unchanged"
+        assert database.writes == []
+    finally:
+        crawler.DRY_RUN = original_dry_run
 
     links = discover_links(
         BeautifulSoup(html, "html.parser"),

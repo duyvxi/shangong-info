@@ -5,7 +5,7 @@ The crawler is intentionally conservative:
 - only HTTPS hosts explicitly stored in knowledge_sources are visited;
 - every host must belong to sdtbu.edu.cn and resolve to public IP addresses;
 - robots.txt, page-count, response-size and delay limits are respected;
-- new or changed pages stay in draft when requires_review is enabled;
+- new or changed pages require manual review;
 - raw HTML, credentials and chat data are never stored.
 """
 
@@ -84,7 +84,11 @@ MAIN_SELECTORS = (
 )
 COMMON_START_PATHS = {
     "www.sdtbu.edu.cn": ("/index/tzgg.htm",),
-    "jwc.sdtbu.edu.cn": ("/index/tzgg.htm",),
+    "jwc.sdtbu.edu.cn": (
+        "/index/tzgg.htm",
+        "/jxyx/xjgl.htm",
+        "/jwgl/jxglwj.htm",
+    ),
     "xsc.sdtbu.edu.cn": ("/index/tzgg.htm",),
 }
 CATEGORY_RULES = (
@@ -462,7 +466,7 @@ def existing_document(database: SupabaseRest, canonical_url: str) -> dict[str, A
         "GET",
         "knowledge_documents",
         params={
-            "select": "id,slug,checksum,status,metadata",
+            "select": "id,slug,checksum,status,source_date,content_format,metadata",
             "canonical_url": f"eq.{canonical_url}",
             "limit": "1",
         },
@@ -477,11 +481,14 @@ def save_document(
     document: ParsedDocument,
 ) -> str:
     existing = existing_document(database, canonical_url)
+    if existing and existing.get("content_format") != "html":
+        # 已由人工维护的原文链接继续走原来的维护入口。
+        return "unchanged"
     category = choose_category(document.title, document.content, source.get("default_category"))
     checksum = document_checksum(document.title, category, document.content)
     crawled_at = iso_now()
 
-    if existing and existing.get("checksum") == checksum:
+    if existing and existing.get("checksum") == checksum and existing.get("source_date") == document.source_date:
         if not DRY_RUN:
             database.request(
                 "PATCH",
@@ -492,14 +499,7 @@ def save_document(
             )
         return "unchanged"
 
-    requires_review = bool(source.get("requires_review", True))
-    old_status = existing.get("status") if existing else None
-    if old_status == "archived":
-        status = "archived"
-    elif requires_review:
-        status = "draft"
-    else:
-        status = "published"
+    status = "archived" if existing and existing.get("status") == "archived" else "draft"
     slug = existing.get("slug") if existing else f"official-{hashlib.sha256(canonical_url.encode('utf-8')).hexdigest()[:24]}"
     previous_metadata = existing.get("metadata") if existing and isinstance(existing.get("metadata"), dict) else {}
     metadata = {
@@ -518,7 +518,7 @@ def save_document(
         "source_url": canonical_url,
         "source_type": "official_notice",
         "source_date": document.source_date,
-        "verified_at": crawled_at if status == "published" else None,
+        "verified_at": None,
         "status": status,
         "checksum": checksum,
         "metadata": metadata,
@@ -540,14 +540,7 @@ def save_document(
         payload=payload,
         prefer="resolution=merge-duplicates,return=minimal",
     )
-    if existing:
-        # Changed content must never keep an old semantic vector.
-        database.request(
-            "DELETE",
-            "knowledge_chunks",
-            params={"document_id": f"eq.{existing['id']}"},
-            prefer="return=minimal",
-        )
+    # 换版和清理旧片段由同一次数据库写入完成。
     return "updated" if existing else "added"
 
 

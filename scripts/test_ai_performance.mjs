@@ -40,11 +40,13 @@ async function exercise(mode) {
   };
   const multiAnnualDoc = {
     ...historicalDoc, id: 'doc-annual', slug: `major-transfer-notice-${currentYear}`,
+    revision: 'annual-current',
     metadata: { ...historicalDoc.metadata, application_start: `${currentYear}-04-23`,
       application_end: `${currentYear}-04-27T14:00:00+08:00` },
   };
   const multiPolicyDoc = {
     id: 'doc-policy', slug: 'major-transfer-policy', title: '普通本科学生转专业管理办法', category: '学籍管理',
+    revision: 'policy-current',
     summary: '适用年级、基本条件和办理流程', content: '完整政策正文。', source_type: 'official_notice',
     source_date: '2024-01-01', verified_at: `${currentYear}-09-01T00:00:00Z`, status: 'published',
     effective_from: '2024-01-01', effective_until: null,
@@ -74,10 +76,11 @@ async function exercise(mode) {
       return response({ data: [{ embedding: Array(1024).fill(0.1) }] });
     }
     if (url.includes('match_knowledge_chunks')) return response(mode === 'multi_intent' ? [
-      { document_id: multiPolicyDoc.id, slug: multiPolicyDoc.slug, chunk_id: 'policy-1', content: '片段一：正常转专业适用于大学一年级。', semantic_score: 0.96 },
-      { document_id: multiPolicyDoc.id, slug: multiPolicyDoc.slug, chunk_id: 'policy-2', content: '片段二：须注册学籍且未受处分。', semantic_score: 0.94 },
-      { document_id: multiPolicyDoc.id, slug: multiPolicyDoc.slug, chunk_id: 'policy-3', content: '片段三：不应进入模型上下文。', semantic_score: 0.92 },
-      { document_id: multiAnnualDoc.id, slug: multiAnnualDoc.slug, chunk_id: 'annual-1', content: '年度通知：报名时间和材料。', semantic_score: 0.9 },
+      { document_id: multiPolicyDoc.id, document_revision: 'policy-old', slug: multiPolicyDoc.slug, chunk_id: 'policy-old', content: '旧版片段不得引用。', semantic_score: 0.99 },
+      { document_id: multiPolicyDoc.id, document_revision: multiPolicyDoc.revision, slug: multiPolicyDoc.slug, chunk_id: 'policy-1', content: '片段一：正常转专业适用于大学一年级。', semantic_score: 0.96 },
+      { document_id: multiPolicyDoc.id, document_revision: multiPolicyDoc.revision, slug: multiPolicyDoc.slug, chunk_id: 'policy-2', content: '片段二：须注册学籍且未受处分。', semantic_score: 0.94 },
+      { document_id: multiPolicyDoc.id, document_revision: multiPolicyDoc.revision, slug: multiPolicyDoc.slug, chunk_id: 'policy-3', content: '片段三：不应进入模型上下文。', semantic_score: 0.92 },
+      { document_id: multiAnnualDoc.id, document_revision: multiAnnualDoc.revision, slug: multiAnnualDoc.slug, chunk_id: 'annual-1', content: '年度通知：报名时间和材料。', semantic_score: 0.9 },
     ] : [], mode === 'vector_failure' ? 503 : 200);
     if (url.includes('record_unanswered_question')) return response({});
     if (url.endsWith('/chat/completions')) {
@@ -201,6 +204,7 @@ async function exercise(mode) {
       assert.match(modelInput, /片段一/);
       assert.match(modelInput, /片段二/);
       assert.doesNotMatch(modelInput, /片段三/);
+      assert.doesNotMatch(modelInput, /旧版片段/);
     }
     if (mode === 'conversation_followup') {
       const modelInput = modelBody.input || modelBody.messages?.[1]?.content || '';

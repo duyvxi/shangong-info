@@ -102,7 +102,8 @@ export function validateAndPrepare(collection) {
       if (!['student_curated', 'student_submission'].includes(metadata.source_class)) {
         fail(`${slug} 必须在 metadata.source_class 标明学生整理资料`);
       }
-      if (metadata.dynamic === true && !effectiveUntil) {
+      // 动态资料默认必须填写到期日，只有明确标记长期保留的资料才可留空。
+      if (metadata.dynamic === true && !effectiveUntil && metadata.allow_no_expiry !== true) {
         fail(`${slug} 是动态人工资料，必须设置 effective_until 防止长期使用过期资料`);
       }
     }
@@ -187,11 +188,11 @@ export async function importDocuments(documents, options) {
   const existingRows = await request(
     projectUrl,
     secretKey,
-    'knowledge_documents?select=id,slug,status,checksum,verified_at&limit=1000',
+    'knowledge_documents?select=slug,status,checksum,verified_at,canonical_url,content_format&limit=1000',
   );
   const existingBySlug = new Map((existingRows || []).map((row) => [row.slug, row]));
+  const existingByUrl = new Map((existingRows || []).filter((row) => row.canonical_url).map((row) => [row.canonical_url, row]));
   const changed = [];
-  const staleDocumentIds = [];
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
@@ -200,6 +201,10 @@ export async function importDocuments(documents, options) {
 
   for (const document of documents) {
     const existing = existingBySlug.get(document.slug);
+    const existingByCanonicalUrl = existingByUrl.get(document.canonical_url);
+    if (existing?.content_format === 'html' || (existingByCanonicalUrl && existingByCanonicalUrl.slug !== document.slug)) {
+      fail(`${document.slug} 与已入库资料重复，请先核对维护入口`);
+    }
     if (existing?.checksum === document.checksum) {
       unchanged += 1;
       continue;
@@ -208,7 +213,6 @@ export async function importDocuments(documents, options) {
     const next = { ...document, updated_at: now };
     if (existing) {
       updated += 1;
-      staleDocumentIds.push(existing.id);
       // 已对外发布的内容一旦变化，自动退回待审核，避免定时任务静默替换答案依据。
       if (existing.status === 'published') {
         next.status = 'draft';
@@ -219,6 +223,7 @@ export async function importDocuments(documents, options) {
       next.verified_at = next.status === 'published' ? existing.verified_at : null;
     } else {
       inserted += 1;
+      next.status = 'draft';
     }
     changed.push(next);
   }
@@ -234,13 +239,7 @@ export async function importDocuments(documents, options) {
     });
   }
 
-  for (const documentId of staleDocumentIds) {
-    await request(projectUrl, secretKey, `knowledge_chunks?document_id=eq.${encodeURIComponent(documentId)}`, {
-      method: 'DELETE',
-      headers: { Prefer: 'return=minimal' },
-    });
-  }
-
+  // 数据库换版时在同一次写入中清理旧片段，避免稍后删到新版。
   return { inserted, updated, unchanged, demoted, totalChunks, dryRun: false };
 }
 

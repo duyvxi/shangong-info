@@ -35,7 +35,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -43,6 +43,7 @@
         "reliability": "secondary",
         "collected_at": "2026-09-06",
         "campus": "东校区",
+        "allow_no_expiry": true,
         "dynamic": true,
         "disclaimer": "仅为单向线路快照，乘车前请查询烟台公交实时信息。"
       }
@@ -57,7 +58,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -65,6 +66,7 @@
         "reliability": "secondary",
         "collected_at": "2026-09-06",
         "campus": "西校区",
+        "allow_no_expiry": true,
         "dynamic": true,
         "disclaimer": "仅为单向线路快照，乘车前请查询烟台公交实时信息。"
       }
@@ -79,7 +81,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -89,6 +91,7 @@
         "route": "1路",
         "campus": "东校区",
         "direction": "宫家岛→烟台人才市场",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -102,7 +105,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -112,6 +115,7 @@
         "route": "5路",
         "campus": "西校区",
         "direction": "三站市场→南塂",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -125,7 +129,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -135,6 +139,7 @@
         "route": "33路",
         "campus": "东校区",
         "direction": "福山上夼→双河东路",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -148,7 +153,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -158,6 +163,7 @@
         "route": "50路",
         "campus": "东校区、西校区",
         "direction": "黄务收费站→三十里堡",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -171,7 +177,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -181,6 +187,7 @@
         "route": "52路",
         "campus": "西校区",
         "direction": "华乐家园→高新区公交场站",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -240,7 +247,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -250,6 +257,7 @@
         "route": "561路",
         "campus": "东校区",
         "direction": "新添堡→烟台人才市场",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -263,7 +271,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理公交资料",
@@ -273,6 +281,7 @@
         "route": "562路",
         "campus": "东校区",
         "direction": "海滨小区公交场站→西解甲庄公交场站",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -286,13 +295,14 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理食堂指南",
         "source_class": "student_curated",
         "reliability": "experience",
         "collected_at": "2026-09-06",
+        "allow_no_expiry": true,
         "dynamic": true,
         "disclaimer": "档口、菜品、价格和营业时间以现场及后勤最新通知为准。"
       }
@@ -307,7 +317,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理食堂指南",
@@ -316,6 +326,7 @@
         "collected_at": "2026-09-06",
         "campus": "东校区",
         "dining_hall": "第一餐厅",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -329,7 +340,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理食堂指南",
@@ -338,6 +349,7 @@
         "collected_at": "2026-09-06",
         "campus": "东校区",
         "dining_hall": "第二餐厅",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -351,7 +363,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理食堂指南",
@@ -360,6 +372,7 @@
         "collected_at": "2026-09-06",
         "campus": "东校区",
         "dining_hall": "第三餐厅",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     },
@@ -373,7 +386,7 @@
       "source_type": "manual",
       "source_date": null,
       "effective_from": "2026-09-06",
-      "effective_until": "2026-12-31",
+      "effective_until": null,
       "status": "published",
       "metadata": {
         "source_name": "学生整理食堂指南",
@@ -382,6 +395,7 @@
         "collected_at": "2026-09-06",
         "campus": "西校区",
         "dining_hall": "扇苑餐厅",
+        "allow_no_expiry": true,
         "dynamic": true
       }
     }
