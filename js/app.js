@@ -4,6 +4,11 @@
 
   const catMap = Object.fromEntries(CATEGORIES.map((category) => [category.id, category]));
   const catMarks = { report: '新', roll: '籍', course: '课', aid: '助', exam: '考', dorm: '舍', campus: '校', league: '创', grad: '毕' };
+  const categoryIcons = {
+    report: 'icon-entry', roll: 'icon-id-card', course: 'icon-info',
+    aid: 'icon-aid', exam: 'icon-exam', dorm: 'icon-bed',
+    campus: 'icon-campus', league: 'icon-idea', grad: 'icon-graduation',
+  };
   const pageNames = new Set(['ai', 'info', 'news', 'me']);
   const scrollPositions = { ai: 0, info: 0, news: 0, me: 0 };
 
@@ -13,10 +18,14 @@
   let searchQuery = '';
   let dynamicItems = [];
   let newsFeeds = [];
+  let newsStatus = 'idle';
   let newsFilter = 'all';
+  const dialogSessions = new WeakMap();
 
   const pages = [...document.querySelectorAll('.app-page')];
-  const navItems = [...document.querySelectorAll('.bottom-nav-item')];
+  const navItems = [...document.querySelectorAll('[data-nav]')];
+  const newsNav = document.querySelector('[data-nav="news"]');
+  const main = document.getElementById('app-viewport');
   const categoryGrid = document.getElementById('category-grid');
   const infoList = document.getElementById('info-card-list');
   const infoHome = document.getElementById('info-home');
@@ -25,6 +34,19 @@
   const infoResultCount = document.getElementById('info-result-count');
   const emptyState = document.getElementById('empty-state');
   const searchInput = document.getElementById('search');
+  const clearSearchButton = document.getElementById('clear-info-search');
+  const newsList = document.getElementById('news-list');
+  const newsStatusPanel = document.getElementById('news-status');
+  const newsStatusText = document.getElementById('news-status-text');
+  const retryNewsButton = document.getElementById('retry-news');
+  const markNewsReadButton = document.getElementById('mark-news-read');
+  const newsFilters = document.getElementById('news-filters');
+  const newsFilterButtons = [...newsFilters.querySelectorAll('[data-filter]')];
+  const postDialog = document.getElementById('modal-submit');
+  const feedbackDialog = document.getElementById('modal-feedback');
+  const postFields = [...postDialog.querySelectorAll('input, select, textarea')];
+  const requiredPostFields = [...postDialog.querySelectorAll('[required]')];
+  let savedPostValues = postFields.map((field) => field.value);
   const docArticle = document.getElementById('doc-article');
   const commentFeed = document.getElementById('sidebar-comment-feed');
   const commentCount = document.getElementById('sidebar-comment-count');
@@ -97,47 +119,68 @@
 
   function renderCategoryGrid() {
     if (!categoryGrid) return;
-    categoryGrid.innerHTML = CATEGORIES.map((category) => {
-      const count = allItems().filter((item) => item.cat === category.id).length;
-      return `<button type="button" class="category-card ${selectedCategory === category.id ? 'is-active' : ''}" data-category="${esc(category.id)}">
-        <span class="category-mark">${esc(catMarks[category.id] || category.name.slice(0, 1))}</span>
-        <b>${esc(category.name)}</b><small>${count} 项</small>
-      </button>`;
-    }).join('');
+    // 分类按钮只创建一次，筛选和加载数据时保留原来的键盘焦点。
+    if (!categoryGrid.firstElementChild) {
+      categoryGrid.innerHTML = CATEGORIES.map((category) => `<button type="button" class="category-card" data-category="${esc(category.id)}">
+        <span class="category-mark" aria-hidden="true"><svg><use href="#${esc(categoryIcons[category.id] || 'icon-campus')}"></use></svg></span>
+        <b>${esc(category.name)}</b><small></small>
+      </button>`).join('');
+    }
+    const counts = new Map();
+    for (const { cat } of allItems()) counts.set(cat, (counts.get(cat) || 0) + 1);
+    for (const button of categoryGrid.children) {
+      const category = button.dataset.category;
+      const active = category === selectedCategory;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+      button.querySelector('small').textContent = `${counts.get(category) || 0} 项`;
+    }
   }
 
   function renderInfoList() {
     if (!infoList) return;
     const cleanQuery = searchQuery.toLowerCase();
+    const titleMatches = (item) => String(item.title ?? '').toLowerCase().includes(cleanQuery);
     const items = allItems().filter((item) => {
       if (selectedCategory !== 'all' && item.cat !== selectedCategory) return false;
       if (!cleanQuery) return true;
       return [item.title, item.summary, item.dept, item.object, item.material]
         .join(' ').toLowerCase().includes(cleanQuery);
     });
+    // 标题直接命中的事项先显示，同一组保留原来的顺序。
+    if (cleanQuery) items.sort((a, b) => Number(titleMatches(b)) - Number(titleMatches(a)));
+    infoHome.classList.toggle('is-searching', Boolean(cleanQuery));
+    clearSearchButton.hidden = !searchInput.value;
 
     const selected = catMap[selectedCategory];
     infoListTitle.textContent = searchQuery ? '搜索结果' : selected ? selected.name : '常用事项';
     infoResultCount.textContent = `${items.length} 项`;
     emptyState.hidden = items.length > 0;
+    if (!items.length) {
+      emptyState.querySelector('p').textContent = cleanQuery
+        ? '换一个关键词，或清空搜索后按分类查找。'
+        : '点击上方分类继续浏览。';
+    }
     infoList.hidden = items.length === 0;
 
     infoList.innerHTML = items.map((item) => {
       const category = catMap[item.cat] || { name: '校园信息' };
       return `<a class="info-card" href="#/info/${encodeURIComponent(item.slug)}">
         <span class="info-card-mark">${esc(catMarks[item.cat] || '校')}</span>
-        <span class="info-card-copy"><b>${esc(item.title)}</b><small>${esc(item.summary || item.object || '查看事项详情')}</small><em>${esc(category.name)} · ${esc(item.dept || '学校职能部门')}</em></span>
-        ${item.isDynamic ? '<span class="fresh-label">新</span>' : ''}
+        <span class="info-card-copy"><b>${esc(item.title)}${item.isDynamic ? '<span class="fresh-label">新</span>' : ''}</b><small>${esc(item.summary || item.object || '查看事项详情')}</small><em>${esc(category.name)} · ${esc(item.dept || '学校职能部门')}</em></span>
         <svg><use href="#icon-arrow"></use></svg>
       </a>`;
     }).join('');
   }
 
-  function selectCategory(category) {
+  function selectCategory(category, scrollToResults) {
     selectedCategory = selectedCategory === category ? 'all' : category;
     renderCategoryGrid();
     renderInfoList();
-    document.querySelector('.content-section:nth-of-type(2)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (scrollToResults) {
+      const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
+      document.getElementById('info-results').scrollIntoView({ behavior, block: 'start' });
+    }
   }
 
   function priorityClass(priority) {
@@ -164,9 +207,10 @@
       details = `<section class="doc-section"><h2>详细说明</h2><p>${esc(item.body)}</p></section>`;
     }
 
+    // 先展示到现场前需要核对的三项信息。
     const meta = [
-      ['适用对象', item.object], ['关键时间', item.time], ['负责部门', item.dept],
-      ['联系电话', item.phone], ['办理地点', item.place], ['所需材料', item.material],
+      ['办理时间', item.time], ['所需材料', item.material], ['办理地点', item.place],
+      ['适用对象', item.object], ['负责部门', item.dept], ['联系电话', item.phone],
     ].filter(([, value]) => value && !['—', '-'].includes(String(value).trim()));
     const sourceUrl = safeUrl(item.url);
 
@@ -175,17 +219,17 @@
       <h1>${esc(item.title)}</h1><p>${esc(item.summary || '查看完整校园事项说明')}</p>
       <div class="doc-byline"><span>${esc(item.dept || '学校职能部门')}</span><span>${item.date ? `更新于 ${esc(item.date)}` : '请以官方最新通知为准'}</span></div>
     </header>
+    ${meta.length ? `<section class="doc-section doc-summary-fields"><h2>办事信息</h2><dl class="key-info">${meta.map(([key, value]) => `<div><dt>${key}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl></section>` : ''}
     ${steps}${dataTable}${details}
-    ${meta.length ? `<section class="doc-section"><h2>关键信息</h2><dl class="key-info">${meta.map(([key, value]) => `<div><dt>${key}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl></section>` : ''}
     ${item.notes ? `<div class="warning-box"><b>办理提醒</b><span>${esc(item.notes)}</span></div>` : ''}
     <div class="doc-actions">
       <button class="btn-like" id="btn-like-${esc(item.slug)}" type="button">有帮助 <span id="like-count-${esc(item.slug)}">0</span></button>
-      <button class="btn btn-outline btn-sm" id="feedback-current" type="button">纠错反馈</button>
+      <button class="btn btn-outline btn-sm" id="feedback-current" type="button" aria-haspopup="dialog">纠错反馈</button>
       ${sourceUrl ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener">查看官方原文 ↗</a>` : ''}
     </div>`;
 
     document.getElementById(`btn-like-${item.slug}`)?.addEventListener('click', () => handleLikeClick(item.slug));
-    document.getElementById('feedback-current')?.addEventListener('click', () => openFeedbackModal(item.slug, item.title));
+    document.getElementById('feedback-current')?.addEventListener('click', (event) => openFeedbackModal(item.slug, item.title, event.currentTarget));
     addToHistory(item.slug);
     loadLikes(item.slug);
     loadComments(item.slug);
@@ -350,22 +394,46 @@
     return text.includes(newsFilter);
   }
 
-  function renderNews() {
-    const container = document.getElementById('news-list');
-    if (!container) return;
-    if (!newsFeeds.length) {
-      container.innerHTML = '<div class="app-empty"><span>暂时没有新通知</span><p>我们已经为你同步到最新，稍后再来看看。</p></div>';
-      updateNewsBadge();
-      return;
+  function newsHash(filter) {
+    return filter === 'all' ? '#/news' : `#/news?${new URLSearchParams({ filter })}`;
+  }
+
+  function restoreNewsFilter(query) {
+    const value = new URLSearchParams(query).get('filter');
+    newsFilter = newsFilterButtons.some((button) => button.dataset.filter === value) ? value : 'all';
+    for (const button of newsFilterButtons) {
+      const active = button.dataset.filter === newsFilter;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
     }
+    newsNav.href = newsHash(newsFilter);
+  }
+
+  function renderNews() {
+    const ready = newsStatus === 'ready';
     const filtered = newsFeeds.filter(feedMatchesFilter);
-    if (!filtered.length) {
-      container.innerHTML = '<div class="app-empty"><span>这个分类暂无消息</span><p>切换到“全部”查看其他最新通知。</p></div>';
+    const hasResults = ready && filtered.length > 0;
+    const loading = newsStatus === 'idle' || newsStatus === 'loading';
+    const failed = newsStatus === 'error';
+    markNewsReadButton.disabled = !ready || !newsFeeds.length;
+    retryNewsButton.hidden = !failed;
+    newsStatusPanel.hidden = hasResults;
+    newsStatusPanel.className = loading ? '' : 'app-empty';
+    newsStatusText.className = loading ? 'loading-state' : '';
+    newsStatusText.textContent = loading ? '正在加载通知…'
+      : failed ? '通知加载失败，请重试。'
+      : hasResults ? ''
+      : newsFeeds.length ? '这个分类暂无消息，切换到“全部”查看其他通知。'
+      : '暂时没有新通知。';
+    newsList.hidden = !hasResults;
+    updateNewsBadge();
+    if (!hasResults) {
+      newsList.replaceChildren();
       return;
     }
     const readIds = new Set(storageRead('sdtbu_read_news', []));
     const groups = ['今天', '昨天', '更早'];
-    container.innerHTML = groups.map((label) => {
+    newsList.innerHTML = groups.map((label) => {
       const feeds = filtered.filter((feed) => feedGroupLabel(feed) === label);
       if (!feeds.length) return '';
       return `<section class="news-day"><h2>${label}</h2>${feeds.map((feed) => {
@@ -376,8 +444,7 @@
         </a>`;
       }).join('')}</section>`;
     }).join('');
-    container.querySelectorAll('[data-news-id]').forEach((link) => link.addEventListener('click', () => markNewsRead(link.dataset.newsId)));
-    updateNewsBadge();
+    newsList.querySelectorAll('[data-news-id]').forEach((link) => link.addEventListener('click', () => markNewsRead(link.dataset.newsId)));
   }
 
   function markNewsRead(id) {
@@ -401,9 +468,15 @@
   }
 
   async function loadNews() {
-    if (!window.Api?.isConfigured()) return renderNews();
-    try { newsFeeds = await window.Api.getPublishedFeeds('news', 30) || []; }
-    catch (error) { newsFeeds = []; }
+    if (newsStatus === 'loading') return;
+    newsStatus = 'loading';
+    renderNews();
+    try {
+      newsFeeds = await window.Api.getPublishedFeeds('news', 30, { throwOnError: true });
+      newsStatus = 'ready';
+    } catch {
+      newsStatus = 'error';
+    }
     renderNews();
   }
 
@@ -440,29 +513,48 @@
   function renderOfficialLinks() {
     const container = document.getElementById('official-links-grid');
     if (!container) return;
-    container.innerHTML = LINKS.map((link) => `<a class="me-row" href="${esc(safeUrl(link.url))}" target="_blank" rel="noopener"><span class="me-row-icon blue">校</span><span><b>${esc(link.name)}</b><small>学校官方渠道</small></span><svg><use href="#icon-arrow"></use></svg></a>`).join('');
+    container.innerHTML = LINKS.map((link) => `<a class="me-row" href="${esc(safeUrl(link.url))}" target="_blank" rel="noopener"><span class="me-row-icon blue" aria-hidden="true"><svg><use href="#icon-campus"></use></svg></span><span><b>${esc(link.name)}</b><small>学校官方渠道</small></span><svg><use href="#icon-arrow"></use></svg></a>`).join('');
   }
 
-  window.showModal = function (id) {
+  window.showModal = function (id, opener = document.activeElement) {
     const modal = document.getElementById(id);
+    if (modal instanceof HTMLDialogElement) {
+      if (modal.open) return;
+      dialogSessions.set(modal, { opener });
+      // 原生模态弹窗会聚焦首个带 autofocus 的字段，并屏蔽背景交互。
+      modal.showModal();
+      document.body.classList.add('modal-open');
+      return;
+    }
     if (modal) { modal.style.display = 'flex'; document.body.classList.add('modal-open'); }
   };
 
   window.hideModal = function (id) {
     const modal = document.getElementById(id);
+    if (modal instanceof HTMLDialogElement) {
+      modal.close();
+      return;
+    }
     if (modal) { modal.style.display = 'none'; document.body.classList.remove('modal-open'); }
   };
 
-  window.openFeedbackModal = function (slug, title) {
+  function closeSubmittedDialog(dialog, session) {
+    // 上一次提交的定时关闭不能关掉后来重新打开的弹窗。
+    setTimeout(() => {
+      if (dialog.open && dialogSessions.get(dialog) === session) hideModal(dialog.id);
+    }, 900);
+  }
+
+  window.openFeedbackModal = function (slug, title, opener) {
     document.getElementById('fb-slug').value = slug || 'general';
     document.getElementById('fb-item-title').textContent = title || '网站与校园信息';
     document.getElementById('fb-desc').value = '';
     document.getElementById('fb-contact').value = '';
     document.getElementById('fb-msg').textContent = '';
-    showModal('modal-feedback');
+    showModal('modal-feedback', opener);
   };
 
-  window.openGeneralFeedback = function () { openFeedbackModal('general', '网站与校园信息'); };
+  window.openGeneralFeedback = function (opener) { openFeedbackModal('general', '网站与校园信息', opener); };
 
   window.showAuthModal = function () {
     const input = document.getElementById('auth-nickname');
@@ -487,6 +579,7 @@
   };
 
   window.handleFeedbackSubmit = async function () {
+    const session = dialogSessions.get(feedbackDialog);
     const description = document.getElementById('fb-desc').value.trim();
     const message = document.getElementById('fb-msg');
     const button = document.getElementById('btn-do-feedback');
@@ -495,37 +588,76 @@
       button.disabled = true; button.textContent = '提交中';
       await window.Api.submitFeedback({ slug: document.getElementById('fb-slug').value, issueType: document.getElementById('fb-type').value, description, contact: document.getElementById('fb-contact').value, userId: null });
       message.textContent = '反馈已提交，我们会尽快核实。'; message.className = 'form-msg success';
-      setTimeout(() => hideModal('modal-feedback'), 900);
+      closeSubmittedDialog(feedbackDialog, session);
     } catch (error) { message.textContent = error.message || '提交失败，请稍后重试'; message.className = 'form-msg error'; }
     finally { button.disabled = false; button.textContent = '提交反馈'; }
   };
 
+  function setPostFieldError(field, text) {
+    document.getElementById(field.getAttribute('aria-describedby')).textContent = text;
+    if (text) field.setAttribute('aria-invalid', 'true');
+    else field.removeAttribute('aria-invalid');
+  }
+
+  function hasUnsavedPost() {
+    return postFields.some((field, index) => field.value !== savedPostValues[index]);
+  }
+
+  function warnAboutUnsavedPost(event) {
+    event.preventDefault();
+    event.returnValue = true;
+  }
+
+  function updatePostDraftGuard() {
+    // 只在有未提交改动时拦截刷新或离开，也不把草稿写入浏览器存储。
+    if (hasUnsavedPost()) window.addEventListener('beforeunload', warnAboutUnsavedPost);
+    else window.removeEventListener('beforeunload', warnAboutUnsavedPost);
+  }
+
   window.handlePostSubmit = async function () {
+    const session = dialogSessions.get(postDialog);
     const title = document.getElementById('post-title').value.trim();
     const content = document.getElementById('post-content').value.trim();
     const message = document.getElementById('post-msg');
     const button = document.getElementById('btn-do-post');
-    if (!title || !content) { message.textContent = '请填写事项标题和详细内容'; message.className = 'form-msg error'; return; }
+    let firstInvalidField = null;
+    for (const field of requiredPostFields) {
+      const missing = !field.value.trim();
+      setPostFieldError(field, missing ? `请填写${field.labels[0].textContent}。` : '');
+      if (missing && !firstInvalidField) firstInvalidField = field;
+    }
+    if (firstInvalidField) {
+      message.textContent = '';
+      firstInvalidField.focus();
+      return;
+    }
+    const submittedValues = postFields.map((field) => field.value);
     try {
       button.disabled = true; button.textContent = '提交中';
       await window.Api.submitArticle({ cat: document.getElementById('post-cat').value, title, summary: document.getElementById('post-summary').value, content, sourceUrl: document.getElementById('post-url').value, userId: null, authorName: getNickname() });
+      savedPostValues = submittedValues;
+      updatePostDraftGuard();
       message.textContent = '投稿已进入审核队列。'; message.className = 'form-msg success';
-      setTimeout(() => hideModal('modal-submit'), 900);
+      if (!hasUnsavedPost()) closeSubmittedDialog(postDialog, session);
     } catch (error) { message.textContent = error.message || '提交失败，请稍后重试'; message.className = 'form-msg error'; }
     finally { button.disabled = false; button.textContent = '提交审核'; }
   };
 
   function syncRoute() {
-    const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
-    const parts = raw.split('/').filter(Boolean);
+    const [path, query] = location.hash.replace(/^#\/?/, '').split('?');
+    const parts = decodeURIComponent(path).split('/').filter(Boolean);
     if (!parts.length) { history.replaceState(null, '', '#/ai'); switchPage('ai', false); return; }
     if (parts[0] === 'section') {
       selectedCategory = parts[1] || 'all';
+      searchQuery = '';
+      if (searchInput) searchInput.value = '';
+      scrollPositions.info = 0;
       if (parts[2] === 'item' && parts[3]) location.replace(`#\/info\/${encodeURIComponent(parts[3])}`);
       else location.replace('#/info');
       return;
     }
     const page = pageNames.has(parts[0]) ? parts[0] : allItems().some((item) => item.slug === parts[0]) ? 'info' : 'ai';
+    if (page === 'news') restoreNewsFilter(query);
     switchPage(page, parts.length === 1);
     if (page === 'info') {
       const slug = parts[1] || (!pageNames.has(parts[0]) ? parts[0] : '');
@@ -547,7 +679,7 @@
 
   categoryGrid?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-category]');
-    if (button) selectCategory(button.dataset.category);
+    if (button) selectCategory(button.dataset.category, event.detail > 0);
   });
   searchInput?.addEventListener('input', (event) => {
     searchQuery = event.target.value.trim();
@@ -555,23 +687,68 @@
     renderCategoryGrid();
     renderInfoList();
   });
+  clearSearchButton.addEventListener('click', () => {
+    searchInput.value = '';
+    searchInput.dispatchEvent(new Event('input'));
+    searchInput.focus();
+  });
   bookmarkButton?.addEventListener('click', toggleBookmark);
   document.getElementById('detail-back')?.addEventListener('click', () => { location.hash = '#/info'; });
-  document.getElementById('mark-news-read')?.addEventListener('click', markAllNewsRead);
-  document.getElementById('news-filters')?.addEventListener('click', (event) => {
+  markNewsReadButton.addEventListener('click', markAllNewsRead);
+  retryNewsButton.addEventListener('click', loadNews);
+  newsFilters.addEventListener('click', (event) => {
     const button = event.target.closest('[data-filter]');
-    if (!button) return;
-    newsFilter = button.dataset.filter;
-    document.querySelectorAll('#news-filters button').forEach((item) => item.classList.toggle('is-active', item === button));
-    renderNews();
+    if (button) location.hash = newsHash(button.dataset.filter);
+  });
+  postDialog.addEventListener('input', (event) => {
+    const field = event.target;
+    if (requiredPostFields.includes(field) && field.value.trim()) setPostFieldError(field, '');
+    updatePostDraftGuard();
+  });
+  document.getElementById('skip-to-content').addEventListener('click', (event) => {
+    event.preventDefault();
+    main.focus({ preventScroll: true });
+    main.scrollIntoView({ block: 'start' });
+  });
+  main.addEventListener('focusin', (event) => {
+    const target = event.target;
+    if (target === main || target.closest('.ai-panel.is-chatting') || !target.matches(':focus-visible')) return;
+    // 浏览器自动定位焦点时也让出固定页眉和手机底栏。
+    requestAnimationFrame(() => {
+      if (document.activeElement === target) target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
   });
   document.addEventListener('keydown', (event) => {
+    const dialog = document.querySelector('dialog.modal-overlay:modal');
+    if (dialog) {
+      if (event.key === 'Tab') {
+        const controls = dialog.querySelectorAll('button:enabled, input:not([type="hidden"]):enabled, select:enabled, textarea:enabled, a[href]');
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (document.activeElement === (event.shiftKey ? first : last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      }
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault(); location.hash = '#/info'; setTimeout(() => searchInput?.focus(), 80);
     }
-    if (event.key === 'Escape') document.querySelectorAll('.modal-overlay').forEach((modal) => { if (modal.style.display !== 'none') hideModal(modal.id); });
+    if (event.key === 'Escape') document.querySelectorAll('.modal-overlay:not(dialog)').forEach((modal) => { if (modal.style.display !== 'none') hideModal(modal.id); });
   });
-  document.querySelectorAll('.modal-overlay').forEach((modal) => modal.addEventListener('click', (event) => { if (event.target === modal) hideModal(modal.id); }));
+  document.querySelectorAll('.modal-overlay').forEach((modal) => {
+    modal.addEventListener('click', (event) => { if (event.target === modal) hideModal(modal.id); });
+    if (!(modal instanceof HTMLDialogElement)) return;
+    modal.addEventListener('close', () => {
+      if (modal.open) return;
+      const session = dialogSessions.get(modal);
+      dialogSessions.delete(modal);
+      if (document.querySelector('dialog.modal-overlay:modal')) return;
+      document.body.classList.remove('modal-open');
+      session?.opener?.focus({ preventScroll: true });
+    });
+  });
   window.addEventListener('hashchange', syncRoute);
 
   renderCategoryGrid();

@@ -2,15 +2,16 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#F3F6FA">
   <title>山商信息通 · 校园 AI 办事助手</title>
   <meta name="description" content="山东工商学院校园 AI 办事助手：查询报到、选课、考试、资助、宿舍和校园最新消息。">
   <link rel="stylesheet" href="css/style.css?v=20260904-2">
-  <link rel="stylesheet" href="css/mobile-app.css?v=20260922-1">
+  <link rel="stylesheet" href="css/mobile-app.css?v=20261115-5">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="mobile-app">
+  <a class="skip-link" id="skip-to-content" href="#app-viewport">跳到主内容</a>
   <svg class="icon-sprite" aria-hidden="true">
     <symbol id="icon-ai" viewBox="0 0 24 24"><path d="M8 5.5h8A4.5 4.5 0 0 1 20.5 10v3A4.5 4.5 0 0 1 16 17.5h-3.2L8.5 21v-3.5H8A4.5 4.5 0 0 1 3.5 13v-3A4.5 4.5 0 0 1 8 5.5Z"/><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"/></symbol>
     <symbol id="icon-info" viewBox="0 0 24 24"><path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h12.5v16H7A2.5 2.5 0 0 0 4.5 21V5.5Z"/><path d="M4.5 18.5A2.5 2.5 0 0 1 7 16h12.5M9 7h6M9 11h7"/></symbol>
@@ -20,59 +21,101 @@
     <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
     <symbol id="icon-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
     <symbol id="icon-bookmark" viewBox="0 0 24 24"><path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4V4.5Z"/></symbol>
+    <symbol id="icon-external" viewBox="0 0 24 24"><path d="M8 16 17 7M9 7h8v8"/></symbol>
+    <!-- 学生端的图标复用同一套线条和尺寸。 -->
+    <symbol id="icon-mountain" viewBox="0 0 24 24"><path d="m2.5 19 7-11 4.3 6.7 3.2-5L21.5 19z"/><path d="m7.3 11.5 2.2 2 2.2-2"/></symbol>
+    <symbol id="icon-entry" viewBox="0 0 24 24"><path d="M10 5h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-8M3 12h11m-4-4 4 4-4 4"/></symbol>
+    <symbol id="icon-id-card" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="8.5" cy="10.25" r="1.5"/><path d="M5.8 15.5a2.7 2.7 0 0 1 5.4 0M14 10.5h4m-4 4h3"/></symbol>
+    <symbol id="icon-aid" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m9 8.5 3 3.5 3-3.5m-3 3.5v4m-2.5-3.5h5m-5 2.5h5"/></symbol>
+    <symbol id="icon-exam" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="4.5" rx="1.5"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-7.5 9.5 2.2 2.2 4.8-4.9"/></symbol>
+    <symbol id="icon-bed" viewBox="0 0 24 24"><path d="M3 18V7m18 11v-5a2 2 0 0 0-2-2h-7v5M3 16h18M3 13h6v-2a2 2 0 0 0-2-2H3"/></symbol>
+    <symbol id="icon-campus" viewBox="0 0 24 24"><path d="M3 20h18M5 20v-9m14 9v-9M3 11l9-6 9 6zM9 20v-6m6 6v-6"/></symbol>
+    <symbol id="icon-idea" viewBox="0 0 24 24"><path d="M9 18v-2c0-1.5-3-2.4-3-6a6 6 0 0 1 12 0c0 3.6-3 4.5-3 6v2zM10 21h4"/></symbol>
+    <symbol id="icon-graduation" viewBox="0 0 24 24"><path d="m2.5 10 9.5-5 9.5 5-9.5 5zM6.5 12v4.5a9 9 0 0 0 11 0V12m4-2v6"/></symbol>
+    <symbol id="icon-submit" viewBox="0 0 24 24"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6m-3-8 3 3m-9 6 8-8a2.1 2.1 0 0 1 3 3l-8 8-4.5 1z" transform="translate(-.6 0)"/></symbol>
+    <symbol id="icon-feedback" viewBox="0 0 24 24"><path d="M7 4.5h10A3 3 0 0 1 20 7.5v6a3 3 0 0 1-3 3h-4.5L8 20v-3.5H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3ZM12 7.5v3.5m0 2.5h.01"/></symbol>
+    <symbol id="icon-privacy" viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.7c0 4-2.8 6.8-7 8.8-4.2-2-7-4.8-7-8.8V6z"/><path d="m9 11.8 2 2 4-4"/></symbol>
+    <symbol id="icon-terms" viewBox="0 0 24 24"><path d="M14 3.5H6a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 6 20.5h12a1.5 1.5 0 0 0 1.5-1.5V9zm0 0V9h5.5M8 12h8m-8 4h5"/></symbol>
+    <symbol id="icon-admin" viewBox="0 0 24 24"><circle cx="8" cy="10" r="4"/><path d="m11 12.5 7.5 7.5m-3.5-3.5 2-2m0 4 2-2"/></symbol>
   </svg>
 
   <div class="app-shell">
-    <main class="app-viewport" id="app-viewport">
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="site-brand" href="#/ai">
+          <span class="site-brand-mark" aria-hidden="true"><svg><use href="#icon-mountain"></use></svg></span>山商信息通
+        </a>
+        <nav class="site-nav" aria-label="主要导航">
+          <a href="#/ai" class="site-nav-item is-active" data-nav="ai" aria-current="page"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-ai"></use></svg></span><span>AI 助手</span></a>
+          <a href="#/info" class="site-nav-item" data-nav="info"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-info"></use></svg></span><span>校园信息</span></a>
+          <a href="#/news" class="site-nav-item" data-nav="news"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-news"></use></svg></span><span>最新消息</span><span class="nav-badge" id="news-unread-badge" hidden></span></a>
+          <a href="#/me" class="site-nav-item" data-nav="me"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-user"></use></svg></span><span>我的</span></a>
+        </nav>
+      </div>
+    </header>
+    <main class="app-viewport" id="app-viewport" tabindex="-1">
       <section class="app-page is-active" id="page-ai" data-page="ai" aria-labelledby="ai-page-title">
-        <header class="page-header page-header-ai">
-          <div><span class="page-eyebrow">CAMPUS DESK</span><h1 id="ai-page-title">山商 AI 助手</h1></div>
-          <span class="service-status"><i></i>资料值班中</span>
-        </header>
         <div class="ai-panel is-open" id="ai-panel" aria-label="山商 AI 助手">
-          <div class="ai-messages" id="ai-messages" aria-live="polite">
-            <section class="ai-welcome-card">
-              <div class="ai-welcome-mark">问</div>
-              <p class="ai-welcome-kicker">校园办事，从可靠资料开始</p>
-              <h2>今天想了解什么？</h2>
-              <p>我可以帮你查询报到、选课、考试、资助、宿舍和校园服务。回答会附上资料出处。</p>
-              <div class="ai-trust-strip"><span>仅依据已整理资料</span><span>不确定时明确说明</span></div>
-            </section>
-            <div class="ai-suggestions" id="ai-suggestions" aria-label="常用问题">
-              <button type="button" data-question="新生报到需要带什么材料？"><b>报到</b>新生要带什么材料</button>
-              <button type="button" data-question="宿舍可以使用哪些电器？"><b>宿舍</b>可以使用哪些电器</button>
-              <button type="button" data-question="挂科以后补考和重修怎么办？"><b>考试</b>补考和重修怎么办</button>
-              <button type="button" data-question="助学金需要准备哪些材料？"><b>资助</b>助学金申请材料</button>
-            </div>
-            <section class="recent-questions" id="recent-questions" hidden>
-              <div class="section-title-row"><h2>最近咨询</h2><button type="button" id="clear-ai-history">清空</button></div>
-              <div id="recent-question-list"></div>
-            </section>
+          <header class="ai-intro">
+            <h1 id="ai-page-title">山商办事台</h1>
+            <p>问报到、转专业、考试，也能问宿舍和校园生活。</p>
+          </header>
+          <div class="ai-chat-bar">
+            <span>AI 助手</span>
+            <button class="header-action" id="ai-new-question" type="button">新提问</button>
           </div>
+          <div class="ai-messages" id="ai-messages"></div>
           <footer class="ai-composer">
             <form id="ai-form">
               <label class="sr-only" for="ai-input">向校园助手提问</label>
-              <textarea id="ai-input" rows="1" maxlength="500" placeholder="输入校园问题，例如：助学金怎么申请？"></textarea>
+              <textarea id="ai-input" rows="1" maxlength="500" placeholder="例如：转专业要准备哪些材料？" aria-describedby="ai-input-privacy ai-input-error"></textarea>
               <button id="ai-send" type="submit">发送</button>
             </form>
-            <div class="ai-composer-meta"><span id="ai-remaining">请勿输入学号、手机号等个人信息</span><span>AI 回答仅供参考</span></div>
+            <p class="ai-input-error" id="ai-input-error" role="status"></p>
+            <div class="ai-composer-meta"><span id="ai-input-privacy">请勿输入学号、手机号等个人信息</span><span id="ai-remaining"></span></div>
           </footer>
+          <section class="ai-suggestion-section" aria-labelledby="ai-suggestion-title">
+            <h2 id="ai-suggestion-title">试试这些问题</h2>
+            <div class="ai-suggestions" id="ai-suggestions">
+              <button type="button" data-question="在读证明怎么办？">在读证明怎么办？</button>
+              <button type="button" data-question="宿舍可以使用哪些电器？">宿舍可以用哪些电器？</button>
+              <button type="button" data-question="挂科以后补考和重修怎么办？">补考和重修怎么办？</button>
+            </div>
+          </section>
+          <aside class="ai-shortcuts" aria-labelledby="ai-shortcuts-title">
+            <h2 id="ai-shortcuts-title">直接找事项</h2>
+            <a href="#/section/roll"><span><b>学籍管理</b><small>在读证明、转专业</small></span><svg aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+            <a href="#/section/exam"><span><b>考试相关</b><small>补考、四六级</small></span><svg aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+            <a href="#/section/dorm"><span><b>宿舍生活</b><small>住宿费、门禁</small></span><svg aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+            <a href="#/section/all"><b>浏览全部 9 类事项</b><svg aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+          </aside>
+          <section class="recent-questions" id="recent-questions" hidden>
+            <div class="section-title-row"><h2>最近咨询</h2><button type="button" id="clear-ai-history">清空</button></div>
+            <div id="recent-question-list"></div>
+          </section>
+          <p class="ai-site-note">学生个人项目 · 办理事项以学校最新官方通知为准</p>
         </div>
       </section>
 
       <section class="app-page" id="page-info" data-page="info" aria-labelledby="info-page-title" hidden>
         <header class="page-header">
-          <div><span class="page-eyebrow">CAMPUS GUIDE</span><h1 id="info-page-title">校园信息</h1></div>
-          <button class="header-action" type="button" onclick="showModal('modal-submit')">投稿</button>
+          <h1 id="info-page-title">校园信息</h1>
+          <button class="header-action" type="button" aria-haspopup="dialog" onclick="showModal('modal-submit', this)">投稿</button>
         </header>
         <div id="info-home" class="page-content">
-          <label class="app-search" for="search"><svg><use href="#icon-search"></use></svg><input type="search" id="search" placeholder="搜索政策、地点、办理事项"><kbd>Ctrl K</kbd></label>
-          <section class="content-section">
+          <div class="app-search">
+            <svg aria-hidden="true"><use href="#icon-search"></use></svg>
+            <label class="sr-only" for="search">搜索校园信息</label>
+            <input type="search" id="search" placeholder="搜索政策、地点、办理事项">
+            <button class="search-clear" id="clear-info-search" type="button" aria-label="清空搜索" hidden>清空</button>
+            <kbd>Ctrl K</kbd>
+          </div>
+          <section class="content-section" id="info-categories">
             <div class="section-title-row"><h2>按场景查找</h2><span>9 个校园场景</span></div>
             <div class="category-grid" id="category-grid"></div>
           </section>
-          <section class="content-section">
-            <div class="section-title-row"><h2 id="info-list-title">常用事项</h2><span id="info-result-count"></span></div>
+          <section class="content-section" id="info-results">
+            <div class="section-title-row"><h2 id="info-list-title">常用事项</h2><span id="info-result-count" role="status"></span></div>
             <div class="info-card-list" id="info-card-list"></div>
             <div id="empty-state" class="app-empty" hidden><span>未找到相关事项</span><p>换一个关键词，或点击上方分类继续浏览。</p></div>
           </section>
@@ -85,8 +128,9 @@
           </div>
           <article id="doc-article"></article>
           <section class="discussion-section" id="discussion-section">
-            <div class="section-title-row"><div><span class="page-eyebrow">STUDENT NOTES</span><h2>同学交流</h2></div><span class="comment-count-badge" id="sidebar-comment-count">0 条</span></div>
+            <div class="section-title-row"><h2>同学交流</h2><span class="comment-count-badge" id="sidebar-comment-count">0 条</span></div>
             <div class="comment-input-box">
+              <label class="sr-only" for="comment-input">写下同学交流留言</label>
               <textarea id="comment-input" placeholder="写下你的疑问或办事经验…"></textarea>
               <div class="comment-input-foot"><span class="comment-tip">提交后经审核公开</span><button class="btn btn-primary btn-sm" id="btn-post-comment" onclick="handleCurrentCommentSubmit()">发表</button></div>
             </div>
@@ -97,63 +141,99 @@
 
       <section class="app-page" id="page-news" data-page="news" aria-labelledby="news-page-title" hidden>
         <header class="page-header">
-          <div><span class="page-eyebrow">OFFICIAL UPDATES</span><h1 id="news-page-title">最新消息</h1></div>
-          <button class="header-action quiet" type="button" id="mark-news-read">全部已读</button>
+          <h1 id="news-page-title">最新消息</h1>
+          <button class="header-action quiet" type="button" id="mark-news-read" disabled>全部已读</button>
         </header>
         <div class="page-content">
-          <div class="news-notice"><i></i><span>学校官方渠道每 6 小时巡检，消息经审核后发布</span></div>
+          <p class="news-notice">学校官方渠道每 6 小时巡检，消息经审核后发布</p>
           <div class="filter-row" id="news-filters"><button type="button" class="is-active" data-filter="all">全部</button><button type="button" data-filter="教务">教务</button><button type="button" data-filter="学生">学生工作</button><button type="button" data-filter="校园">校园服务</button></div>
-          <div class="news-timeline" id="news-list"><div class="loading-state">正在同步最新消息…</div></div>
+          <div id="news-status" role="status">
+            <p class="loading-state" id="news-status-text">正在加载通知…</p>
+            <button class="header-action" id="retry-news" type="button" hidden>重试</button>
+          </div>
+          <div class="news-timeline" id="news-list"></div>
         </div>
       </section>
 
       <section class="app-page" id="page-me" data-page="me" aria-labelledby="me-page-title" hidden>
-        <header class="page-header"><div><span class="page-eyebrow">MY CAMPUS</span><h1 id="me-page-title">我的</h1></div></header>
+        <header class="page-header"><h1 id="me-page-title">我的</h1></header>
         <div class="page-content me-content">
           <section class="profile-card"><div class="profile-avatar" id="profile-avatar">同</div><div class="profile-copy"><h2 id="profile-name">匿名同学</h2><p>昵称与使用记录仅保存在当前设备</p></div><button type="button" class="profile-edit" onclick="showAuthModal()">修改</button></section>
           <section class="me-stat-grid">
-            <button type="button" onclick="showMyList('bookmarks')"><strong id="bookmark-count">0</strong><span>我的收藏</span></button>
-            <button type="button" onclick="showMyList('history')"><strong id="history-count">0</strong><span>浏览记录</span></button>
-            <button type="button" onclick="showMyList('likes')"><strong id="local-like-count">0</strong><span>点赞内容</span></button>
+            <button type="button" onclick="showMyList('bookmarks')"><span>我的收藏</span><strong id="bookmark-count">0</strong></button>
+            <button type="button" onclick="showMyList('history')"><span>浏览记录</span><strong id="history-count">0</strong></button>
+            <button type="button" onclick="showMyList('likes')"><span>点赞内容</span><strong id="local-like-count">0</strong></button>
           </section>
           <section class="me-library-panel" id="me-library-panel" hidden><div class="section-title-row"><h2 id="me-library-title">我的收藏</h2><button type="button" onclick="hideMyList()">收起</button></div><div id="me-library-list"></div></section>
           <section class="me-group">
             <h2>参与建设</h2>
-            <button type="button" class="me-row" onclick="showModal('modal-submit')"><span class="me-row-icon coral">稿</span><span><b>我要投稿</b><small>补充校园政策和办事经验</small></span><svg><use href="#icon-arrow"></use></svg></button>
-            <button type="button" class="me-row" onclick="openGeneralFeedback()"><span class="me-row-icon green">纠</span><span><b>纠错与反馈</b><small>告诉我们失效或不准确的信息</small></span><svg><use href="#icon-arrow"></use></svg></button>
+            <button type="button" class="me-row" aria-haspopup="dialog" onclick="showModal('modal-submit', this)"><span class="me-row-icon" aria-hidden="true"><svg><use href="#icon-submit"></use></svg></span><span><b>我要投稿</b><small>补充校园政策和办事经验</small></span><svg><use href="#icon-arrow"></use></svg></button>
+            <button type="button" class="me-row" aria-haspopup="dialog" onclick="openGeneralFeedback(this)"><span class="me-row-icon" aria-hidden="true"><svg><use href="#icon-feedback"></use></svg></span><span><b>纠错与反馈</b><small>告诉我们失效或不准确的信息</small></span><svg><use href="#icon-arrow"></use></svg></button>
           </section>
           <section class="me-group">
             <h2>校园与本站</h2>
             <div class="official-link-list" id="official-links-grid"></div>
-            <a class="me-row" href="privacy.html"><span class="me-row-icon">隐</span><span><b>隐私政策</b></span><svg><use href="#icon-arrow"></use></svg></a>
-            <a class="me-row" href="terms.html"><span class="me-row-icon">约</span><span><b>用户协议</b></span><svg><use href="#icon-arrow"></use></svg></a>
-            <a class="me-row" href="admin.html"><span class="me-row-icon">管</span><span><b>管理员入口</b><small>需要管理员账号登录</small></span><svg><use href="#icon-arrow"></use></svg></a>
+            <a class="me-row" href="privacy.html"><span class="me-row-icon" aria-hidden="true"><svg><use href="#icon-privacy"></use></svg></span><span><b>隐私政策</b></span><svg><use href="#icon-arrow"></use></svg></a>
+            <a class="me-row" href="terms.html"><span class="me-row-icon" aria-hidden="true"><svg><use href="#icon-terms"></use></svg></span><span><b>用户协议</b></span><svg><use href="#icon-arrow"></use></svg></a>
+            <a class="me-row" href="admin.html"><span class="me-row-icon" aria-hidden="true"><svg><use href="#icon-admin"></use></svg></span><span><b>管理员入口</b><small>需要管理员账号登录</small></span><svg><use href="#icon-arrow"></use></svg></a>
           </section>
           <p class="site-disclaimer">山商信息通为学生个人非官方项目<br>办理事项请以学校最新官方通知为准</p>
         </div>
       </section>
     </main>
-
-    <nav class="bottom-nav" aria-label="主要导航">
-      <a href="#/ai" class="bottom-nav-item is-active" data-nav="ai" aria-current="page"><span class="nav-icon"><svg><use href="#icon-ai"></use></svg></span><span>AI 助手</span></a>
-      <a href="#/info" class="bottom-nav-item" data-nav="info"><span class="nav-icon"><svg><use href="#icon-info"></use></svg></span><span>校园信息</span></a>
-      <a href="#/news" class="bottom-nav-item" data-nav="news"><span class="nav-icon"><svg><use href="#icon-news"></use></svg><i class="nav-badge" id="news-unread-badge" hidden></i></span><span>最新消息</span></a>
-      <a href="#/me" class="bottom-nav-item" data-nav="me"><span class="nav-icon"><svg><use href="#icon-user"></use></svg></span><span>我的</span></a>
-    </nav>
   </div>
 
   <div class="modal-overlay" id="modal-auth" style="display:none;"><div class="modal"><div class="modal-head"><h3>设置你的昵称</h3><button class="modal-close" onclick="hideModal('modal-auth')">×</button></div><div class="modal-body"><p class="form-msg modal-intro">无需注册账号，昵称只保存在当前浏览器，不会关联真实身份。</p><div class="form-group"><label for="auth-nickname">昵称</label><input type="text" id="auth-nickname" placeholder="如 山商新生、匿名同学" maxlength="20"></div><div class="form-group"><label class="agree-row"><input type="checkbox" id="auth-agree"><span>我已阅读并同意 <a href="terms.html" target="_blank">《用户协议》</a> 与 <a href="privacy.html" target="_blank">《隐私政策》</a></span></label></div><div id="auth-msg" class="form-msg"></div></div><div class="modal-foot"><button class="btn btn-outline" onclick="hideModal('modal-auth')">取消</button><button class="btn btn-primary" id="btn-do-auth" onclick="handleAuthSubmit()">保存昵称</button></div></div></div>
 
-  <div class="modal-overlay" id="modal-feedback" style="display:none;"><div class="modal"><div class="modal-head"><h3>纠错与信息反馈</h3><button class="modal-close" onclick="hideModal('modal-feedback')">×</button></div><div class="modal-body"><input type="hidden" id="fb-slug"><div class="form-group"><label>反馈事项</label><div id="fb-item-title" class="form-static-value"></div></div><div class="form-group"><label for="fb-type">问题类型</label><select id="fb-type"><option value="outdated">信息已过期 / 时间变更</option><option value="wrong_phone">联系电话或办公地点有误</option><option value="policy_change">办理流程或政策有调整</option><option value="other">其他问题</option></select></div><div class="form-group"><label for="fb-desc">详细说明</label><textarea id="fb-desc" rows="4" placeholder="请描述最新情况，或提供正确的官方通知链接"></textarea></div><div class="form-group"><label for="fb-contact">联系方式（选填）</label><input type="text" id="fb-contact" placeholder="方便我们进一步核实"></div><div id="fb-msg" class="form-msg"></div></div><div class="modal-foot"><button class="btn btn-outline" onclick="hideModal('modal-feedback')">取消</button><button class="btn btn-primary" id="btn-do-feedback" onclick="handleFeedbackSubmit()">提交反馈</button></div></div></div>
+  <dialog class="modal-overlay" id="modal-feedback" aria-labelledby="feedback-dialog-title">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="feedback-dialog-title">纠错与信息反馈</h3>
+        <button class="modal-close" type="button" aria-label="关闭反馈弹窗" onclick="hideModal('modal-feedback')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="fb-slug">
+        <div class="form-group"><label>反馈事项</label><div id="fb-item-title" class="form-static-value"></div></div>
+        <div class="form-group"><label for="fb-type">问题类型</label><select id="fb-type" autofocus><option value="outdated">信息已过期 / 时间变更</option><option value="wrong_phone">联系电话或办公地点有误</option><option value="policy_change">办理流程或政策有调整</option><option value="other">其他问题</option></select></div>
+        <div class="form-group"><label for="fb-desc">详细说明</label><textarea id="fb-desc" rows="4" placeholder="请描述最新情况，或提供正确的官方通知链接"></textarea></div>
+        <div class="form-group"><label for="fb-contact">联系方式（选填）</label><input type="text" id="fb-contact" placeholder="方便我们进一步核实"></div>
+        <div id="fb-msg" class="form-msg" role="status"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" type="button" onclick="hideModal('modal-feedback')">取消</button>
+        <button class="btn btn-primary" id="btn-do-feedback" type="button" onclick="handleFeedbackSubmit()">提交反馈</button>
+      </div>
+    </div>
+  </dialog>
 
-  <div class="modal-overlay" id="modal-submit" style="display:none;"><div class="modal modal-lg"><div class="modal-head"><h3>投稿校园信息</h3><button class="modal-close" onclick="hideModal('modal-submit')">×</button></div><div class="modal-body"><p class="form-msg modal-intro">分享办事攻略或补充最新政策，审核通过后会展示在校园信息中。</p><div class="form-group"><label for="post-cat">所属板块</label><select id="post-cat"><option value="report">入学报到</option><option value="roll">学籍管理</option><option value="course">选课教学</option><option value="aid">奖助贷勤</option><option value="exam">考试相关</option><option value="dorm">宿舍生活</option><option value="campus">校园服务</option><option value="league">团学与创新创业</option><option value="grad">毕业就业</option></select></div><div class="form-group"><label for="post-title">事项标题</label><input type="text" id="post-title" placeholder="如：东校区自助打印点汇总"></div><div class="form-group"><label for="post-summary">一句话摘要</label><input type="text" id="post-summary" placeholder="简要说明这条信息能解决什么问题"></div><div class="form-group"><label for="post-content">详细内容</label><textarea id="post-content" rows="5" placeholder="写明流程、地点和注意事项"></textarea></div><div class="form-group"><label for="post-url">官方来源或参考链接（选填）</label><input type="url" id="post-url" placeholder="https://..."></div><div id="post-msg" class="form-msg"></div></div><div class="modal-foot"><button class="btn btn-outline" onclick="hideModal('modal-submit')">取消</button><button class="btn btn-primary" id="btn-do-post" onclick="handlePostSubmit()">提交审核</button></div></div></div>
+  <dialog class="modal-overlay" id="modal-submit" aria-labelledby="post-dialog-title">
+    <div class="modal modal-lg">
+      <div class="modal-head">
+        <h3 id="post-dialog-title">投稿校园信息</h3>
+        <button class="modal-close" type="button" aria-label="关闭投稿弹窗" onclick="hideModal('modal-submit')">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="form-msg modal-intro">分享办事攻略或补充最新政策，审核通过后会展示在校园信息中。</p>
+        <div class="form-group"><label for="post-cat">所属板块</label><select id="post-cat" autofocus><option value="report">入学报到</option><option value="roll">学籍管理</option><option value="course">选课教学</option><option value="aid">奖助贷勤</option><option value="exam">考试相关</option><option value="dorm">宿舍生活</option><option value="campus">校园服务</option><option value="league">团学与创新创业</option><option value="grad">毕业就业</option></select></div>
+        <div class="form-group"><label for="post-title">事项标题</label><input type="text" id="post-title" placeholder="如：东校区自助打印点汇总" required aria-describedby="post-title-error"><p class="post-field-error" id="post-title-error" role="status"></p></div>
+        <div class="form-group"><label for="post-summary">一句话摘要</label><input type="text" id="post-summary" placeholder="简要说明这条信息能解决什么问题"></div>
+        <div class="form-group"><label for="post-content">详细内容</label><textarea id="post-content" rows="5" placeholder="写明流程、地点和注意事项" required aria-describedby="post-content-error"></textarea><p class="post-field-error" id="post-content-error" role="status"></p></div>
+        <div class="form-group"><label for="post-url">官方来源或参考链接（选填）</label><input type="url" id="post-url" placeholder="https://..."></div>
+        <div id="post-msg" class="form-msg" role="status"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" type="button" onclick="hideModal('modal-submit')">取消</button>
+        <button class="btn btn-primary" id="btn-do-post" type="button" onclick="handlePostSubmit()">提交审核</button>
+      </div>
+    </div>
+  </dialog>
 
   <script src="js/data.js?v=20260919-1"></script>
-  <script src="js/api.js?v=20260920-2"></script>
-  <script src="js/app.js?v=20260904-2"></script>
+  <script src="js/api.js?v=20261116-pages1"></script>
+  <script src="js/app.js?v=20261115-5"></script>
   <script src="js/markdown.js?v=20260919-1"></script>
   <script src="js/ai-stream.js?v=20260920-1"></script>
   <script src="js/ai-conversation.js?v=20260920-1"></script>
-  <script src="js/ai.js?v=20260922-1"></script>
+  <script src="js/ai.js?v=20261115-5"></script>
 </body>
 </html>

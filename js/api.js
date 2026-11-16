@@ -656,9 +656,12 @@ const Api = {
    * @param {string|null} cat 板块分类（如 'news' 或具体板块 key，传 null 或 'all' 则查全部已发布）
    * @param {number} limit 最大获取条数
    */
-  async getPublishedFeeds(cat = 'news', limit = 30) {
-    if (!this.isConfigured() || !supabaseClient) return [];
+  async getPublishedFeeds(cat = 'news', limit = 30, { throwOnError = false } = {}) {
     try {
+      if (!this.isConfigured() || !supabaseClient) {
+        if (throwOnError) throw new Error('消息服务暂不可用');
+        return [];
+      }
       let query = supabaseClient
         .from('feeds')
         .select('id, source, source_name, title, link, pub_date, cat, status, published_at, created_at')
@@ -680,13 +683,12 @@ const Api = {
       }
 
       const { data, error } = await query;
-      if (error) {
-        console.warn('获取已发布消息失败:', error.message);
-        return [];
-      }
+      if (error) throw error;
       return data || [];
-    } catch (err) {
-      console.warn('拉取已发布消息异常:', err);
+    } catch (error) {
+      // 最新消息需要区分请求失败和空列表，其他调用保留空列表回退。
+      if (throwOnError) throw error;
+      console.warn('获取已发布消息失败:', error.message);
       return [];
     }
   },
