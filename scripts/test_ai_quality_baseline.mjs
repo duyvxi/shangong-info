@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { evaluateAnswers, evaluateKnowledge } from './benchmark_ai_quality.mjs';
 import { requestCase } from './run_ai_quality_live.mjs';
 
@@ -25,6 +29,30 @@ const answers = evaluateAnswers([caseOne], [{
 }]);
 assert.equal(answers.summary.complete_case_rate, 1);
 assert.equal(answers.summary.citation_rate, 1);
+
+const badCitation = {
+  id: 'annual-01',
+  answer: '报名时间是2026年4月23日至4月27日14时。[99]',
+  sources: [{ slug: 'official-major-transfer-notice-2026' }],
+};
+for (const answer of [badCitation.answer, `${badCitation.answer}[1]`, badCitation.answer.replace('[99]', '[0]')]) {
+  const result = evaluateAnswers([caseOne], [{ ...badCitation, answer }]);
+  assert.equal(result.cases[0].passed, false);
+  assert.equal(result.summary.citation_rate, 0);
+}
+
+const temp = await mkdtemp(join(tmpdir(), 'campus-score-'));
+const responseFile = join(temp, 'responses.json');
+try {
+  await writeFile(responseFile, JSON.stringify({ cases: [badCitation] }));
+  const cli = spawnSync(process.execPath, [fileURLToPath(new URL('./benchmark_ai_quality.mjs', import.meta.url)),
+    '--responses', responseFile], { encoding: 'utf8', env: {} });
+  assert.equal(cli.status, 1, cli.stderr);
+  assert.match(cli.stdout, /FAIL annual-01 无效引用：\[99\]/);
+} finally {
+  await unlink(responseFile);
+  await rmdir(temp);
+}
 
 const unsafe = evaluateAnswers([caseOne], [{
   id: 'annual-01',
@@ -131,6 +159,15 @@ assert.equal(streamed.answer, '报名时间是2026年4月23日至4月27日14时�
 assert.equal(streamed.sources[0].slug, 'official-major-transfer-notice-2026');
 assert.ok(Number.isFinite(streamed.first_text_ms));
 assert.equal(streamed.server_timing.total, 20);
+
+const incomplete = await requestCase({
+  endpoint: 'https://example.invalid/functions/v1/campus-ai', publicKey: 'fixture-key', clientId: 'quality-test-client',
+  testCase: caseOne, stream: true,
+  fetchImpl: async () => new Response('event: delta\ndata: {"text":"半句"}\n\nevent: done\ndata: {"answer":"缺少结束空行"}', {
+    headers: { 'Content-Type': 'text/event-stream' },
+  }),
+});
+assert.equal(incomplete.outcome, 'stream_incomplete');
 
 const limited = await requestCase({
   endpoint: 'https://example.invalid/functions/v1/campus-ai',

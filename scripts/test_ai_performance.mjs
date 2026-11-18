@@ -95,7 +95,7 @@ async function exercise(mode) {
       if (streamMode) {
         const suffix = mode === 'stream_error'
           ? 'data: {"type":"error","error":{"message":"mock interrupted"}}\n\n'
-          : 'data: {"type":"response.output_text.delta","delta":"禁止使用大功率电器。[1]"}\n\ndata: [DONE]\n\n';
+          : 'data: {"type":"response.output_text.delta","delta":"禁止使用大功率电器。[1]"}\n\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n';
         return new Response(`data: {"type":"response.output_text.delta","delta":"根据资料，宿舍"}\n\n${suffix}`,
           { headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } });
       }
@@ -114,7 +114,7 @@ async function exercise(mode) {
     createTimings: () => createTimings(() => ticks), historicalReferenceMeta, selectKnowledgeScope,
     applicationWindowState, composeDocumentContent, detectQuestionDimensions, diversifyDocumentMatches,
     fuseDocumentMatches, rankDocumentsWithSignals, shanghaiToday, normalizeText, rankDocuments, topicMatchesQuestion,
-    Request, Response, Headers, URL, TextEncoder, TextDecoder, ReadableStream, crypto, AbortController, DOMException,
+    Request, Response, Headers, URL, TextEncoder, TextDecoder, ReadableStream, crypto, AbortController, AbortSignal, DOMException,
     setTimeout, clearTimeout, fetch: fakeFetch, console: { warn() {}, error() {} },
     Deno: { env: { get: (name) => settings[name] }, serve: (callback) => { handler = callback; } },
   });
@@ -209,10 +209,10 @@ async function exercise(mode) {
     if (mode === 'conversation_followup') {
       const modelInput = modelBody.input || modelBody.messages?.[1]?.content || '';
       assert.doesNotMatch(modelInput, /第一轮应被移除|第一轮回答/);
-      assert.match(modelInput, /第二轮宿舍规定|第二轮回答/);
+      assert.doesNotMatch(modelInput, /第二轮宿舍规定|第二轮回答/);
       assert.match(modelInput, /第三轮宿舍电器|第三轮回答/);
       assert.match(modelInput, /当前学生问题：\n那需要什么材料/);
-      assert.match(embeddingInput, /第二轮宿舍规定；第三轮宿舍电器；那需要什么材料/);
+      assert.equal(embeddingInput, '第三轮宿舍电器；那需要什么材料？');
     }
     if (mode === 'embedding_failure') assert.ok(!('vector_rpc' in stages));
     if (mode === 'qwen_thinking_disabled') assert.equal(modelBody.enable_thinking, false);

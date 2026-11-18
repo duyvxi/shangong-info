@@ -65,6 +65,16 @@ assert.equal(benchmarkSamples[0].source_count, 1);
 assert.equal(benchmarkSamples[0].server.total, 100);
 assert.equal(summarize(benchmarkSamples).interruption_rate, 0);
 
+const incompleteSamples = await runBenchmark({
+  endpoint: 'https://mock.invalid/functions/v1/campus-ai', key: 'fixture-key', clientId: 'stream-test-client',
+  repeats: 1, questionSet: ['虚构问题'], stream: true,
+  fetchImpl: async () => responseFromChunks([
+    'event: delta\ndata: {"text":"半句"}\n\nevent: done\ndata: {"answer":"缺少结束空行"}',
+  ]),
+});
+assert.equal(incompleteSamples[0].outcome, 'stream_incomplete');
+assert.equal(summarize(incompleteSamples).successful_answers, 0);
+
 await assert.rejects(
   stream.consumeResponse(responseFromChunks([
     'event: meta\ndata: {}\n\n',
@@ -78,6 +88,23 @@ await assert.rejects(
   stream.consumeResponse(responseFromChunks(['event: delta\ndata: {"text":"未完成"}\n\n'])),
   (error) => error.code === 'STREAM_INCOMPLETE' && error.partialAnswer === '未完成',
 );
+
+let falseDone = false;
+await assert.rejects(stream.consumeResponse(responseFromChunks([
+  'event: delta\ndata: {"text":"保留半句"}\n\nevent: done\ndata: {"answer":"假完成"}',
+]), { onDone: () => { falseDone = true; } }),
+(error) => error.code === 'STREAM_INCOMPLETE' && error.partialAnswer === '保留半句');
+assert.equal(falseDone, false);
+
+let pulls = 0;
+const brokenTransport = new Response(new ReadableStream({
+  pull(controller) {
+    if (pulls++ > 0) controller.error(new Error('fixture disconnect'));
+    else controller.enqueue(new TextEncoder().encode('event: delta\ndata: {"text":"网络断开前的文字"}\n\n'));
+  },
+}));
+await assert.rejects(stream.consumeResponse(brokenTransport),
+  (error) => error.code === 'STREAM_INCOMPLETE' && error.partialAnswer === '网络断开前的文字');
 
 const [apiSource, aiSource, serverSource] = await Promise.all([
   readFile(new URL('../js/api.js', import.meta.url), 'utf8'),

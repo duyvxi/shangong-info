@@ -14,6 +14,7 @@
 
   let activePage = 'ai';
   let currentSlug = '';
+  let commentSession;
   let selectedCategory = 'all';
   let searchQuery = '';
   let dynamicItems = [];
@@ -50,6 +51,7 @@
   const docArticle = document.getElementById('doc-article');
   const commentFeed = document.getElementById('sidebar-comment-feed');
   const commentCount = document.getElementById('sidebar-comment-count');
+  const commentMore = document.getElementById('sidebar-comment-more');
   const commentInput = document.getElementById('comment-input');
   const bookmarkButton = document.getElementById('detail-bookmark');
 
@@ -98,6 +100,7 @@
     const nextPage = pageNames.has(page) ? page : 'ai';
     if (activePage !== nextPage) scrollPositions[activePage] = window.scrollY;
     activePage = nextPage;
+    if (activePage !== 'info') commentSession = null;
     document.body.dataset.currentPage = activePage;
 
     pages.forEach((section) => {
@@ -191,6 +194,7 @@
 
   function renderInfoDetail(item) {
     if (!item || !docArticle) return;
+    if (currentSlug !== item.slug) commentInput.value = '';
     currentSlug = item.slug;
     infoHome.hidden = true;
     infoDetail.hidden = false;
@@ -232,12 +236,20 @@
     document.getElementById('feedback-current')?.addEventListener('click', (event) => openFeedbackModal(item.slug, item.title, event.currentTarget));
     addToHistory(item.slug);
     loadLikes(item.slug);
-    loadComments(item.slug);
+    // 动态资料加载可能重绘同一个详情页，沿用该页已有的评论会话。
+    if (commentSession?.slug !== item.slug) {
+      commentSession = { slug: item.slug, offset: 0, loading: false };
+      commentFeed.replaceChildren();
+      commentCount.textContent = '—';
+      commentMore.hidden = true;
+      loadComments(commentSession);
+    }
     window.Api?.recordView(item.slug, item.cat, null);
   }
 
   function showInfoHome() {
     currentSlug = '';
+    commentSession = null;
     infoDetail.hidden = true;
     infoHome.hidden = false;
     renderCategoryGrid();
@@ -296,77 +308,114 @@
     } catch (error) { alert(error.message || '点赞失败，请稍后重试'); }
   };
 
-  async function loadComments(slug) {
-    if (!commentFeed) return;
-    commentFeed.innerHTML = '<div class="loading-state">正在加载同学交流…</div>';
-    if (!window.Api?.isConfigured()) {
-      commentFeed.innerHTML = '<div class="app-empty compact"><span>交流区暂未开放</span><p>连接校园数据服务后即可使用。</p></div>';
-      return;
-    }
-    try {
-      const comments = await window.Api.getComments(slug);
-      commentCount.textContent = `${comments.length} 条`;
-      if (!comments.length) {
-        commentFeed.innerHTML = '<div class="app-empty compact"><span>还没有公开留言</span><p>可以提交第一个问题或办事经验。</p></div>';
-        return;
-      }
-      commentFeed.innerHTML = comments.map((comment) => {
-        const replies = comment.replies?.length ? `<div class="comment-replies">${comment.replies.map((reply) => `<div class="reply-item"><b>${esc(reply.user_name)}</b>${reply.reply_to_name ? ` 回复 ${esc(reply.reply_to_name)}` : ''}：${esc(reply.content)}</div>`).join('')}</div>` : '';
-        return `<article class="comment-card" data-comment-id="${esc(comment.id)}">
-          <div class="comment-user-row"><span class="comment-avatar">${esc((comment.user_name || '同').slice(0, 1))}</span><b>${esc(comment.user_name || '匿名同学')}</b><time>${new Date(comment.created_at).toLocaleDateString('zh-CN')}</time></div>
-          <p>${esc(comment.content)}</p>
-          <div class="comment-actions"><button type="button" data-action="comment-like" class="${comment.has_liked ? 'liked' : ''}">有帮助 <span>${comment.like_count || 0}</span></button><button type="button" data-action="reply">回复</button></div>
-          <div class="inline-reply-box" hidden><textarea rows="2" placeholder="回复 ${esc(comment.user_name || '这位同学')}"></textarea><div><button class="btn btn-outline btn-sm" type="button" data-action="cancel-reply">取消</button><button class="btn btn-primary btn-sm" type="button" data-action="send-reply">发送</button></div></div>${replies}
-        </article>`;
-      }).join('');
+  function renderReplies(replies) {
+    return replies.map((reply) => `<div class="reply-item"><b>${esc(reply.user_name)}</b>${reply.reply_to_name ? ` 回复 ${esc(reply.reply_to_name)}` : ''}：${esc(reply.content)}</div>`).join('');
+  }
 
-      commentFeed.querySelectorAll('.comment-card').forEach((card) => {
-        const id = card.dataset.commentId;
-        const comment = comments.find((entry) => String(entry.id) === id);
-        card.querySelector('[data-action="comment-like"]')?.addEventListener('click', (event) => handleCommentLike(id, event.currentTarget));
-        card.querySelector('[data-action="reply"]')?.addEventListener('click', () => { card.querySelector('.inline-reply-box').hidden = false; card.querySelector('textarea').focus(); });
-        card.querySelector('[data-action="cancel-reply"]')?.addEventListener('click', () => { card.querySelector('.inline-reply-box').hidden = true; });
-        card.querySelector('[data-action="send-reply"]')?.addEventListener('click', (event) => submitReply(id, comment?.user_name || '匿名同学', card, event.currentTarget));
-      });
-    } catch (error) {
-      commentFeed.innerHTML = '<div class="app-empty compact"><span>暂时无法加载留言</span><p>检查网络后重新进入本页面。</p></div>';
+  function appendComment(session, comment) {
+    const card = document.createElement('article');
+    card.className = 'comment-card';
+    card.dataset.commentId = comment.id;
+    card.innerHTML = `
+      <div class="comment-user-row"><span class="comment-avatar">${esc((comment.user_name || '同').slice(0, 1))}</span><b>${esc(comment.user_name || '匿名同学')}</b><time>${new Date(comment.created_at).toLocaleDateString('zh-CN')}</time></div>
+      <p>${esc(comment.content)}</p>
+      <div class="comment-actions"><button type="button" data-action="comment-like" class="${comment.has_liked ? 'liked' : ''}">有帮助 <span>${Number(comment.like_count) || 0}</span></button><button type="button" data-action="reply">回复</button></div>
+      <div class="inline-reply-box" hidden><textarea rows="2" placeholder="回复 ${esc(comment.user_name || '这位同学')}"></textarea><div><button class="btn btn-outline btn-sm" type="button" data-action="cancel-reply">取消</button><button class="btn btn-primary btn-sm" type="button" data-action="send-reply">发送</button></div></div>
+      <div class="comment-replies"${comment.replies.length ? '' : ' hidden'}>${renderReplies(comment.replies)}</div>
+      ${comment.has_more_replies ? '<button class="btn btn-outline btn-sm" type="button" data-action="more-replies">更多回复</button>' : ''}`;
+    const replyBox = card.querySelector('.inline-reply-box');
+    card.querySelector('[data-action="comment-like"]').addEventListener('click', (event) => handleCommentLike(session, comment.id, event.currentTarget));
+    card.querySelector('[data-action="reply"]').addEventListener('click', () => { replyBox.hidden = false; replyBox.querySelector('textarea').focus(); });
+    card.querySelector('[data-action="cancel-reply"]').addEventListener('click', () => { replyBox.hidden = true; });
+    card.querySelector('[data-action="send-reply"]').addEventListener('click', (event) => submitReply(session, comment.id, comment.user_name, card, event.currentTarget));
+    let replyOffset = comment.replies.length;
+    card.querySelector('[data-action="more-replies"]')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const page = await window.Api.getComments(session.slug, { offset: replyOffset, parentId: comment.id });
+        if (session !== commentSession) return;
+        card.querySelector('.comment-replies').insertAdjacentHTML('beforeend', renderReplies(page.comments));
+        replyOffset += page.comments.length;
+        if (!page.has_more) button.remove();
+      } catch {
+        if (session === commentSession) button.textContent = '读取失败，点此重试';
+      } finally { button.disabled = false; }
+    });
+    commentFeed.appendChild(card);
+  }
+
+  async function loadComments(session) {
+    if (!session || session.loading) return;
+    session.loading = true;
+    commentMore.disabled = true;
+    if (!session.offset) commentFeed.innerHTML = '<div class="loading-state">正在加载同学交流…</div>';
+    try {
+      const page = await window.Api.getComments(session.slug, { offset: session.offset });
+      // 同一事项重新打开也创建新会话，迟到的旧响应不能写公共评论区。
+      if (session !== commentSession) return;
+      if (!session.offset) commentFeed.replaceChildren();
+      page.comments.forEach((comment) => appendComment(session, comment));
+      session.offset += page.comments.length;
+      commentCount.textContent = `${page.total} 条`;
+      commentMore.hidden = !page.has_more;
+      commentMore.textContent = '更多留言';
+      if (!session.offset) commentFeed.innerHTML = '<div class="app-empty compact"><span>还没有公开留言</span><p>可以提交第一个问题或办事经验。</p></div>';
+    } catch {
+      if (session !== commentSession) return;
+      if (!session.offset) commentFeed.innerHTML = '<div class="app-empty compact"><span>暂时无法加载留言</span></div>';
+      commentMore.hidden = false;
+      commentMore.textContent = '读取失败，点此重试';
+    } finally {
+      session.loading = false;
+      if (session === commentSession) commentMore.disabled = false;
     }
   }
 
-  async function handleCommentLike(commentId, button) {
+  commentMore.addEventListener('click', () => loadComments(commentSession));
+
+  async function handleCommentLike(session, commentId, button) {
+    button.disabled = true;
     try {
       const result = await window.Api.toggleCommentLike(commentId);
-      button.classList.add('liked');
-      if (!result.unchanged) button.querySelector('span').textContent = Number(button.querySelector('span').textContent || 0) + 1;
-    } catch (error) { alert(error.message || '操作失败'); }
+      if (session !== commentSession) return;
+      button.classList.toggle('liked', result.has_liked);
+      button.querySelector('span').textContent = result.like_count;
+    } catch (error) {
+      if (session === commentSession) alert(error.message || '操作失败');
+    } finally { button.disabled = false; }
   }
 
-  async function submitReply(parentId, targetName, card, button) {
+  async function submitReply(session, parentId, targetName, card, button) {
+    if (session !== commentSession) return;
     const input = card.querySelector('.inline-reply-box textarea');
     const content = input.value.trim();
     if (!content) return;
     try {
       button.disabled = true;
       button.textContent = '发送中';
-      await window.Api.postComment(currentSlug, getNickname(), content, parentId, targetName);
+      await window.Api.postComment(session.slug, getNickname(), content, parentId, targetName);
+      if (session !== commentSession) return;
       input.value = '';
       card.querySelector('.inline-reply-box').hidden = true;
       alert('回复已提交，审核通过后会公开显示。');
-    } catch (error) { alert(error.message || '回复失败'); }
+    } catch (error) { if (session === commentSession) alert(error.message || '回复失败'); }
     finally { button.disabled = false; button.textContent = '发送'; }
   }
 
   window.handleCurrentCommentSubmit = async function () {
     const content = commentInput?.value.trim();
-    if (!content || !currentSlug) return;
+    const session = commentSession;
+    if (!content || !session) return;
     const button = document.getElementById('btn-post-comment');
     try {
       button.disabled = true;
       button.textContent = '发送中';
-      await window.Api.postComment(currentSlug, getNickname(), content);
+      await window.Api.postComment(session.slug, getNickname(), content);
+      if (session !== commentSession) return;
       commentInput.value = '';
       alert('留言已提交，审核通过后会公开显示。');
-    } catch (error) { alert(error.message || '发表失败，请稍后重试'); }
+    } catch (error) { if (session === commentSession) alert(error.message || '发表失败，请稍后重试'); }
     finally { button.disabled = false; button.textContent = '发表'; }
   };
 

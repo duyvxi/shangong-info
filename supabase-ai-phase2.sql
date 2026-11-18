@@ -7,6 +7,7 @@
 
 begin;
 
+create schema if not exists extensions;
 create extension if not exists vector with schema extensions;
 
 -- 1. 可采集的学校官方来源。后台管理员维护，爬虫只能处理这里启用的域名。
@@ -84,7 +85,7 @@ create index if not exists idx_knowledge_chunks_embedding_status
 
 create index if not exists idx_knowledge_chunks_embedding_hnsw
     on public.knowledge_chunks
-    using hnsw (embedding vector_cosine_ops)
+    using hnsw (embedding extensions.vector_cosine_ops)
     where embedding is not null;
 
 -- 4. 未回答问题。只保存脱敏后的示例文本和不可逆哈希。

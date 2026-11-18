@@ -1,36 +1,6 @@
 -- 山商信息通：第二阶段第 1 步——后台与数据库安全加固
--- 管理员账号：public.profiles.nickname = '杜'
-
+-- 管理员由维护者按 SECURITY_SETUP.md 单独开通。迁移不修改账号。
 begin;
-
--- 建立可信管理员身份。raw_app_meta_data 不能由普通客户端修改。
-do $$
-declare
-    v_admin_id uuid := '117bad08-086a-40f5-acd2-ce58d25feae7';
-    v_matches integer;
-begin
-    select count(*) into v_matches
-    from public.profiles
-    where id = v_admin_id and nickname = '杜';
-
-    if v_matches <> 1 then
-        raise exception '管理员账号校验失败，已取消安全迁移';
-    end if;
-
-    update auth.users
-    set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
-        || jsonb_build_object('role', 'admin')
-    where id = v_admin_id;
-
-    if not found then
-        raise exception '未找到对应的 Auth 用户，已取消安全迁移';
-    end if;
-
-    update public.profiles
-    set role = 'admin', status = 'active', updated_at = now()
-    where id = v_admin_id;
-end;
-$$;
 
 -- 私有、无提权的管理员判断函数。
 create schema if not exists private;
@@ -51,10 +21,14 @@ $$;
 revoke all on function private.is_admin() from public, anon;
 grant execute on function private.is_admin() to authenticated, service_role;
 
--- 撤销历史宽权限，再按实际用途逐项授予。
-revoke all on all tables in schema public from anon, authenticated;
-grant all privileges on all tables in schema public to service_role;
-grant all privileges on all sequences in schema public to service_role;
+-- 仅处理基础业务表。AI 与知识表各自管理权限。
+revoke all on table public.item_likes, public.comment_likes, public.comments,
+    public.feedbacks, public.submissions, public.profiles, public.item_views,
+    public.search_keywords, public.daily_stats, public.feeds, public.site_settings
+    from public, anon, authenticated;
+grant select, insert, update, delete on table public.item_likes, public.comment_likes,
+    public.comments, public.feedbacks, public.submissions, public.profiles, public.item_views,
+    public.search_keywords, public.daily_stats, public.feeds, public.site_settings to service_role;
 
 grant select, insert on public.item_likes, public.comment_likes to anon;
 grant select, insert, update, delete on public.item_likes, public.comment_likes to authenticated;
@@ -67,9 +41,7 @@ grant select, insert, update, delete on public.feeds, public.site_settings to au
 grant select, update on public.profiles to authenticated;
 grant select on public.daily_stats to authenticated;
 
-revoke all on public.knowledge_documents, public.ai_rate_limits, public.ai_usage from anon, authenticated;
-
--- 所有 Data API 表强制启用 RLS。
+-- 基础业务表启用 RLS。
 alter table public.item_likes enable row level security;
 alter table public.comment_likes enable row level security;
 alter table public.comments enable row level security;
@@ -81,11 +53,8 @@ alter table public.search_keywords enable row level security;
 alter table public.daily_stats enable row level security;
 alter table public.feeds enable row level security;
 alter table public.site_settings enable row level security;
-alter table public.knowledge_documents enable row level security;
-alter table public.ai_rate_limits enable row level security;
-alter table public.ai_usage enable row level security;
 
--- 删除所有历史宽松策略。
+-- 这 11 张基础业务表的历史策略由此脚本替换，保留其他表的策略。
 do $$
 declare
     p record;
@@ -93,7 +62,11 @@ begin
     for p in
         select schemaname, tablename, policyname
         from pg_policies
-        where schemaname = 'public'
+        where schemaname = 'public' and tablename in (
+            'item_likes', 'comment_likes', 'comments', 'feedbacks', 'submissions',
+            'profiles', 'item_views', 'search_keywords', 'daily_stats', 'feeds', 'site_settings'
+        )
+        and policyname not in ('feedbacks_submit_account', 'submissions_submit_account')
     loop
         execute format('drop policy if exists %I on %I.%I', p.policyname, p.schemaname, p.tablename);
     end loop;
@@ -224,14 +197,14 @@ create policy daily_stats_admin_read on public.daily_stats
 for select to authenticated using ((select private.is_admin()));
 
 -- 视图改为调用者权限执行，避免绕过底层 RLS。
-alter view public.item_stats set (security_invoker = true);
+alter view if exists public.item_stats set (security_invoker = true);
 alter view public.view_active_news set (security_invoker = true);
 alter view public.view_search_ranking set (security_invoker = true);
 alter view public.view_top_items set (security_invoker = true);
 
-revoke all on public.item_stats, public.view_active_news,
-    public.view_search_ranking, public.view_top_items from anon, authenticated;
-grant select on public.item_stats, public.view_active_news to anon, authenticated;
+revoke all on public.view_active_news, public.view_search_ranking, public.view_top_items
+    from public, anon, authenticated;
+grant select on public.view_active_news to anon, authenticated;
 grant select on public.view_search_ranking, public.view_top_items to authenticated;
 
 -- 历史 SECURITY DEFINER 函数不再暴露为公共 RPC，并固定 search_path。
@@ -239,8 +212,19 @@ alter function public.handle_new_user() set search_path = '';
 revoke all on function public.handle_new_user() from public, anon, authenticated;
 grant execute on function public.handle_new_user() to service_role;
 
-revoke all on function public.rls_auto_enable() from public, anon, authenticated;
-grant execute on function public.rls_auto_enable() to service_role;
+-- 仅旧库可能有这两个对象。存在时保留并加固。
+do $$
+begin
+    if to_regclass('public.item_stats') is not null then
+        revoke all on public.item_stats from public, anon, authenticated;
+        grant select on public.item_stats to anon, authenticated;
+    end if;
+    if to_regprocedure('public.rls_auto_enable()') is not null then
+        revoke all on function public.rls_auto_enable() from public, anon, authenticated;
+        grant execute on function public.rls_auto_enable() to service_role;
+    end if;
+end;
+$$;
 
 revoke all on function public.consume_ai_quota(text, integer, integer)
 from public, anon, authenticated;

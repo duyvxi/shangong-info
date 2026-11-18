@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>山商信息通 · 管理后台与数据驾驶舱</title>
   <link rel="stylesheet" href="css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <style>
     body { background: #f4f6fa; }
@@ -245,6 +245,11 @@
             <tr><td colspan="7" style="text-align:center;">数据加载中...</td></tr>
           </tbody>
         </table>
+        <div class="knowledge-pagination">
+          <button class="btn-action" id="comments-prev" type="button" disabled>上一页</button>
+          <span id="comments-page">第 1 页</span>
+          <button class="btn-action" id="comments-next" type="button" disabled>下一页</button>
+        </div>
       </div>
     </div>
 
@@ -311,6 +316,7 @@
           </label>
           <button class="btn btn-primary btn-sm" type="submit">添加来源</button>
         </form>
+        <p id="knowledge-source-status" class="knowledge-status" role="status"></p>
         <table class="admin-table">
           <thead><tr><th>来源</th><th>域名</th><th>默认分类</th><th>采集状态</th><th>最后采集</th><th>操作</th></tr></thead>
           <tbody id="tbl-knowledge-sources"><tr><td colspan="6" style="text-align:center;">数据加载中...</td></tr></tbody>
@@ -429,8 +435,8 @@
   </dialog>
 
   <script src="js/data.js"></script>
-  <script src="js/api.js?v=20261116-1"></script>
-  <script src="js/admin-knowledge.js?v=20261116-1"></script>
+  <script src="js/api.js?v=20261118-3"></script>
+  <script src="js/admin-knowledge.js?v=20261118-3"></script>
   <script>
     const questionsById = new Map();
     const gapStatusLabels = { open: '待处理', reviewing: '处理中', resolved: '已补充', ignored: '已忽略' };
@@ -529,31 +535,27 @@
         return;
       }
 
-      // 1. 加载概览卡片 (独立 catch，避免单点报错阻塞后续)
-      try {
-        const summary = await window.Api.getDashboardSummary();
-        document.getElementById('stat-users').textContent = summary.totalUsers;
-        document.getElementById('stat-pv').textContent = summary.totalPv;
-        document.getElementById('stat-likes').textContent = summary.totalLikes;
-        document.getElementById('stat-comments').textContent = summary.totalComments;
-        document.getElementById('stat-feedbacks').textContent = summary.totalFeedbacks;
-      } catch (err) {
-        console.warn('加载概览失败:', err);
-      }
+      // 各区域独立更新，失败时只影响对应区域。
+      await Promise.all([
+        loadCounts(), loadTopItems(), loadSearchRankings(), loadUsers(), loadCommentPage(),
+        refreshCrawlSwitch(), loadFeeds(), loadKnowledgeSources(), window.AdminKnowledge.load(),
+        loadCrawlJobs(), loadGaps(), loadFeedback(), loadSubmissions(),
+      ]);
+    }
 
-      try {
-        const knowledge = await window.Api.getKnowledgeOverview();
-        document.getElementById('stat-knowledge-documents').textContent = knowledge.documents;
-        document.getElementById('stat-knowledge-chunks').textContent = knowledge.readyChunks;
-        document.getElementById('stat-open-questions').textContent = knowledge.openQuestions;
-      } catch (err) {
-        document.getElementById('stat-knowledge-documents').textContent = '-';
-        document.getElementById('stat-knowledge-chunks').textContent = '-';
-        document.getElementById('stat-open-questions').textContent = '-';
-        console.warn('第二阶段知识表尚未就绪:', err);
-      }
+    const metrics = ['users', 'pv', 'likes', 'comments', 'feedbacks', 'knowledge-documents', 'knowledge-chunks', 'open-questions'];
+    const countRequests = new Map();
+    async function loadCounts(keys = metrics) {
+      await Promise.all(keys.map(async (key) => {
+        const card = document.getElementById('stat-' + key);
+        const request = window.Api.getAdminCount(key);
+        countRequests.set(key, request);
+        const value = await request.catch(() => '读取失败');
+        if (countRequests.get(key) === request) card.textContent = value;
+      }));
+    }
 
-      // 2. 加载热门榜
+    async function loadTopItems() {
       try {
         const topItems = await window.Api.getTopViewedItems(10);
         const topBody = document.getElementById('tbl-top-items');
@@ -570,10 +572,12 @@
           `).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-top-items').innerHTML = `<tr><td colspan="4" style="text-align:center;color:#dc2626;">需在 Supabase 执行最新 SQL 创建 view_top_items</td></tr>`;
+        document.getElementById('tbl-top-items').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#dc2626;">热榜读取失败</td></tr>';
       }
 
-      // 3. 加载搜索词
+    }
+
+    async function loadSearchRankings() {
       try {
         const searchKws = await window.Api.getSearchRankings(10);
         const kwBody = document.getElementById('tbl-search-keywords');
@@ -589,10 +593,12 @@
           `).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-search-keywords').innerHTML = `<tr><td colspan="3" style="text-align:center;color:#dc2626;">需在 Supabase 执行最新 SQL 创建 view_search_ranking</td></tr>`;
+        document.getElementById('tbl-search-keywords').innerHTML = '<tr><td colspan="3" style="text-align:center;color:#dc2626;">搜索统计读取失败</td></tr>';
       }
 
-      // 4. 加载用户列表
+    }
+
+    async function loadUsers() {
       try {
         const users = await window.Api.getAdminProfiles();
         const userBody = document.getElementById('tbl-users');
@@ -618,9 +624,28 @@
         document.getElementById('tbl-users').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message || '请先在 Supabase 执行最新的 SQL 脚本创建 profiles 表')}</td></tr>`;
       }
 
-      // 5. 加载评论与回复审查
+    }
+
+    let commentPage = 0;
+    let commentLoad = 0;
+    const commentPageSize = 40;
+    const commentPrev = document.getElementById('comments-prev');
+    const commentNext = document.getElementById('comments-next');
+    commentPrev.addEventListener('click', () => loadCommentPage(commentPage - 1));
+    commentNext.addEventListener('click', () => loadCommentPage(commentPage + 1));
+
+    async function loadCommentPage(page = commentPage) {
+      const request = ++commentLoad;
+      commentPrev.disabled = commentNext.disabled = true;
       try {
-        const comments = await window.Api.getAdminComments(40);
+        const rows = await window.Api.getAdminComments(commentPageSize + 1, page * commentPageSize);
+        if (request !== commentLoad) return;
+        if (page > 0 && !rows.length) return loadCommentPage(page - 1);
+        const comments = rows.slice(0, commentPageSize);
+        commentPage = page;
+        document.getElementById('comments-page').textContent = `第 ${page + 1} 页`;
+        commentPrev.disabled = page === 0;
+        commentNext.disabled = rows.length <= commentPageSize;
         const cmBody = document.getElementById('tbl-comments');
         if (!comments.length) {
           cmBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">暂无评论互动</td></tr>';
@@ -634,7 +659,7 @@
                 ${c.reply_to_name ? `<br><small style="color:#64748b;">回复 @${escapeHtml(c.reply_to_name)}</small>` : ''}
               </td>
               <td style="max-width:240px; word-break:break-all;">${escapeHtml(c.content)}</td>
-              <td><span class="badge-status ${c.status === 'approved' ? 'badge-active' : 'badge-banned'}">${c.status === 'approved' ? '正常显示' : '已屏蔽'}</span></td>
+              <td><span class="badge-status ${c.status === 'approved' ? 'badge-active' : 'badge-banned'}">${{ approved: '正常显示', rejected: '已屏蔽', pending: '待审核' }[c.status] || '未知'}</span></td>
               <td>${new Date(c.created_at).toLocaleString()}</td>
               <td>
                 ${c.status === 'approved'
@@ -645,16 +670,14 @@
           `).join('');
         }
       } catch (err) {
+        if (request !== commentLoad) return;
+        commentPrev.disabled = commentPage === 0;
         document.getElementById('tbl-comments').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message)}</td></tr>`;
       }
 
-      // 6. 加载内容源自动抓取 (feeds)
-      // 6.0 加载自动抓取暂停/恢复开关状态
-      try {
-        await refreshCrawlSwitch();
-      } catch (err) {
-        console.warn('加载抓取开关状态失败:', err);
-      }
+    }
+
+    async function loadFeeds() {
       try {
         const feeds = await window.Api.getFeeds(60);
         const feedsBody = document.getElementById('tbl-feeds');
@@ -745,9 +768,14 @@
         document.getElementById('tbl-feeds').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message || '请先在 Supabase 执行最新 SQL 创建 feeds 表')}</td></tr>`;
       }
 
-      // 7. AI 官方知识来源
+    }
+
+    let sourceLoad = 0;
+    async function loadKnowledgeSources() {
+      const request = ++sourceLoad;
       try {
         const sources = await window.Api.getKnowledgeSources();
+        if (request !== sourceLoad) return true;
         const sourceBody = document.getElementById('tbl-knowledge-sources');
         if (!sources.length) {
           sourceBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">暂无来源，请先执行 supabase-ai-phase2.sql</td></tr>';
@@ -764,13 +792,14 @@
           `).join('');
         }
       } catch (err) {
-        document.getElementById('tbl-knowledge-sources').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">第二阶段数据库尚未安装：${escapeHtml(err.message)}</td></tr>`;
+        if (request !== sourceLoad) return false;
+        document.getElementById('tbl-knowledge-sources').innerHTML = '<tr><td colspan="6" style="color:#dc2626;">来源列表读取失败，请刷新重试。</td></tr>';
+        return false;
       }
+      return true;
+    }
 
-      // 8. AI 知识审核
-      await window.AdminKnowledge.load();
-
-      // 9. 最近采集任务
+    async function loadCrawlJobs() {
       try {
         const jobs = await window.Api.getCrawlJobs(30);
         const jobsBody = document.getElementById('tbl-crawl-jobs');
@@ -794,7 +823,9 @@
         document.getElementById('tbl-crawl-jobs').innerHTML = `<tr><td colspan="8" style="text-align:center;color:#dc2626;">任务记录加载失败：${escapeHtml(err.message)}</td></tr>`;
       }
 
-      // 10. AI 未回答问题
+    }
+
+    async function loadGaps() {
       try {
         const questions = await window.Api.getUnansweredQuestions({ status: 'all' });
         questionsById.clear();
@@ -823,7 +854,9 @@
         document.getElementById('tbl-unanswered-questions').innerHTML = `<tr><td colspan="6" style="text-align:center;color:#dc2626;">第二阶段数据库尚未安装：${escapeHtml(err.message)}</td></tr>`;
       }
 
-      // 9. 加载纠错反馈
+    }
+
+    async function loadFeedback() {
       try {
         const feedbacks = await window.Api.getFeedbacks();
         const fbBody = document.getElementById('tbl-feedbacks');
@@ -844,7 +877,9 @@
         document.getElementById('tbl-feedbacks').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626;">加载失败：${escapeHtml(err.message)}</td></tr>`;
       }
 
-      // 10. 加载投稿
+    }
+
+    async function loadSubmissions() {
       try {
         const submissions = await window.Api.getSubmissions();
         const subBody = document.getElementById('tbl-submissions');
@@ -874,7 +909,7 @@
       if (!titleEl || !btn) return;
 
       try {
-        const paused = (await window.Api.getSiteSetting('crawl_paused', 'false')) === 'true';
+        const paused = (await window.Api.getSiteSetting('crawl_paused')) === 'true';
         if (paused) {
           titleEl.textContent = '⏸️ 自动抓取已暂停';
           titleEl.style.color = '#dc2626';
@@ -893,7 +928,7 @@
       } catch (err) {
         titleEl.textContent = '⚠️ 无法读取抓取状态';
         titleEl.style.color = '#d97706';
-        descEl.textContent = '请先在 Supabase 执行最新 SQL（创建 site_settings 表）后重试。';
+        descEl.textContent = '请检查数据库连接与暂停配置，再刷新重试。';
         btn.style.display = 'none';
       }
     }
@@ -902,7 +937,7 @@
     async function toggleCrawlPause() {
       const btn = document.getElementById('btn-toggle-crawl');
       try {
-        const currentlyPaused = (await window.Api.getSiteSetting('crawl_paused', 'false')) === 'true';
+        const currentlyPaused = (await window.Api.getSiteSetting('crawl_paused')) === 'true';
         const nextPaused = !currentlyPaused;
         const actionText = nextPaused ? '暂停自动抓取' : '恢复自动抓取';
         if (!confirm(`确认${actionText}吗？${nextPaused ? '暂停后爬虫将不再抓取新内容，直到您恢复。' : '恢复后下一次定时任务将立即开始抓取。'}`)) return;
@@ -933,7 +968,7 @@
         alert(isNews
           ? '已发布到【今日最新消息】！将在 24 小时后自动下架。'
           : '已发布到对应板块，前台已实时显示。如需补充更完整的图文攻略，可同步到 data.js 主干数据文件。');
-        loadAllAdminData();
+        await loadFeeds();
       } catch (err) {
         alert('发布失败: ' + err.message);
       }
@@ -951,7 +986,7 @@
       try {
         await window.Api.updateFeedStatus(fid, 'published', cat);
         alert('已成功转入新板块！');
-        loadAllAdminData();
+        await loadFeeds();
       } catch (err) {
         alert('操作失败: ' + err.message);
       }
@@ -962,7 +997,7 @@
       if (!confirm('确认下架/忽略该条内容吗？下架后前台将不再显示。')) return;
       try {
         await window.Api.updateFeedStatus(fid, 'ignored');
-        loadAllAdminData();
+        await loadFeeds();
       } catch (err) {
         alert('操作失败: ' + err.message);
       }
@@ -972,7 +1007,7 @@
       try {
         await window.Api.updateCommentStatus(cid, newStatus);
         alert(`评论已更新为：${newStatus === 'approved' ? '放行' : '屏蔽'}`);
-        loadAllAdminData();
+        await Promise.all([loadCommentPage(), loadCounts(['comments'])]);
       } catch (err) {
         alert('操作失败: ' + err.message);
       }
@@ -983,7 +1018,7 @@
       try {
         await window.Api.updateUserStatus(uid, newStatus);
         alert('状态更新成功！');
-        loadAllAdminData();
+        await Promise.all([loadUsers(), loadCounts(['users'])]);
       } catch (err) {
         alert('操作失败: ' + err.message);
       }
@@ -991,19 +1026,33 @@
 
     async function handleKnowledgeSourceSubmit(event) {
       event.preventDefault();
-      const name = document.getElementById('source-name').value.trim();
-      const baseUrl = document.getElementById('source-url').value.trim();
-      const defaultCategory = document.getElementById('source-category').value;
-      const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+      // currentTarget 仅在事件分发期间有效，异步保存前保留表单。
+      const form = event.currentTarget;
+      const submitButton = form.querySelector('button[type="submit"]');
+      if (submitButton.disabled) return;
+      const status = document.getElementById('knowledge-source-status');
+      const name = form.querySelector('#source-name').value.trim();
+      const baseUrl = form.querySelector('#source-url').value.trim();
+      const defaultCategory = form.querySelector('#source-category').value;
+      submitButton.disabled = true;
+      submitButton.textContent = '正在添加…';
+      status.textContent = '';
+      status.removeAttribute('data-error');
       try {
-        submitButton.disabled = true;
-        submitButton.textContent = '正在添加...';
-        await window.Api.createKnowledgeSource({ name, baseUrl, defaultCategory });
-        event.currentTarget.reset();
-        alert('官方来源已添加。新来源仍需经过采集和人工审核后才会用于 AI 回答。');
-        await loadAllAdminData();
-      } catch (err) {
-        alert('添加失败：' + (err.message || '请检查地址和数据库权限'));
+        try {
+          await window.Api.createKnowledgeSource({ name, baseUrl, defaultCategory });
+        } catch (error) {
+          status.setAttribute('data-error', '');
+          status.textContent = error.code === '23505' ? '该官网地址已存在'
+            : `添加失败：${error.message || '请检查地址和数据库权限'}`;
+          return;
+        }
+        form.reset();
+        status.textContent = '已保存。新来源采集后仍需人工审核。';
+        if (!await loadKnowledgeSources()) {
+          status.setAttribute('data-error', '');
+          status.textContent = '已保存，列表刷新失败';
+        }
       } finally {
         submitButton.disabled = false;
         submitButton.textContent = '添加来源';
@@ -1018,7 +1067,7 @@
           enabled,
           last_status: enabled ? 'never' : 'paused',
         });
-        await loadAllAdminData();
+        if (!await loadKnowledgeSources()) alert('已保存，列表刷新失败');
       } catch (err) {
         alert(`${action}失败：${err.message}`);
       }
@@ -1029,7 +1078,7 @@
       if (!confirm(`确认将这个问题标记为“${labels[status] || status}”吗？`)) return;
       try {
         await window.Api.updateUnansweredQuestion(questionId, status);
-        await loadAllAdminData();
+        await Promise.all([loadGaps(), loadCounts(['open-questions'])]);
       } catch (err) {
         alert('更新失败：' + err.message);
       }
@@ -1067,7 +1116,7 @@
           result: document.getElementById('gap-resolution-result').value.trim(),
         });
         gapDialog.close();
-        void loadAllAdminData();
+        void Promise.all([loadGaps(), loadCounts(['open-questions'])]);
       } catch (error) {
         gapMessage.setAttribute('data-error', '');
         gapMessage.textContent = error.message === 'KNOWLEDGE_CONFLICT'
@@ -1080,6 +1129,7 @@
 
     document.getElementById('admin-login-form').addEventListener('submit', handleAdminLogin);
     document.getElementById('knowledge-source-form').addEventListener('submit', handleKnowledgeSourceSubmit);
+    window.addEventListener('knowledge-published-count-changed', () => loadCounts(['knowledge-documents']));
     window.addEventListener('DOMContentLoaded', initializeAdminPage);
   </script>
 </body>
