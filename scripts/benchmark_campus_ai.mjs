@@ -54,20 +54,24 @@ async function readEventStream(response, start, now) {
   let server = {};
   let finished = false;
   let streamError = false;
+  let noMatch = false;
   const consume = (block) => {
+    if (finished || streamError) return;
     const event = block.match(/^event:\s*(.+)$/m)?.[1] || 'message';
     const raw = block.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
     if (!raw) return;
     let data = {};
     try { data = JSON.parse(raw); } catch { return; }
     if (event === 'meta') {
+      noMatch = data.noMatch === true;
       sourceCount = Array.isArray(data.sources) ? data.sources.length : 0;
       if (Number.isFinite(data.remaining)) remaining = data.remaining;
     } else if (event === 'delta' && typeof data.text === 'string') {
       if (!Number.isFinite(firstTextMs) && data.text) firstTextMs = now() - start;
       answerChars += data.text.length;
-    } else if (event === 'done') {
+    } else if (event === 'done' && typeof data.answer === 'string' && data.answer.trim()) {
       finished = true;
+      noMatch ||= data.noMatch === true;
       server = data.timing && typeof data.timing === 'object' ? data.timing : {};
       if (typeof data.answer === 'string') answerChars = data.answer.length;
       if (Number.isFinite(data.remaining)) remaining = data.remaining;
@@ -79,7 +83,7 @@ async function readEventStream(response, start, now) {
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
+    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n|\r(?!$)/g, '\n');
     let boundary = buffer.indexOf('\n\n');
     while (boundary >= 0) {
       consume(buffer.slice(0, boundary));
@@ -87,9 +91,7 @@ async function readEventStream(response, start, now) {
       boundary = buffer.indexOf('\n\n');
     }
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) consume(buffer);
-  return { outcome: streamError ? 'stream_error' : finished && answerChars ? 'ok' : 'stream_incomplete',
+  return { outcome: streamError ? 'stream_error' : !finished ? 'stream_incomplete' : noMatch ? 'no_match' : 'ok',
     answer_chars: answerChars, source_count: sourceCount, first_text_ms: firstTextMs, remaining, server };
 }
 

@@ -348,9 +348,12 @@
         loading.remove();
         const followUps = followUpsFor(cleanQuestion, result);
         conversation?.add(cleanQuestion, result.answer);
+        messages.querySelectorAll('.ai-follow-ups').forEach((items) => items.remove());
         addAssistantMessage(result.answer, result.sources || [], false, followUps);
       } else {
         conversation?.add(cleanQuestion, result.answer);
+        // 跟进按钮依赖最近一轮话题，只在最近一条成功回答上保留。
+        messages.querySelectorAll('.ai-follow-ups').forEach((items) => items.remove());
         streamView.setFollowUps(followUpsFor(cleanQuestion, streamMeta));
       }
       if (remaining && Number.isFinite(result.remaining)) remaining.textContent = `本小时还可提问 ${result.remaining} 次`;
@@ -362,7 +365,8 @@
         if (!partialView.hasText) partialView.update(error.partialAnswer);
         partialView.interrupt('回答中断，已保留收到的内容。', cleanQuestion);
       } else {
-        addAssistantMessage(error.message || '校园助手暂时不可用，请稍后再试。', [], true, [], cleanQuestion);
+        const label = ['MODEL_INCOMPLETE', 'STREAM_INCOMPLETE'].includes(error.code) ? '回答中断' : '';
+        addAssistantMessage(error.message || '校园助手暂时不可用，请稍后再试。', [], true, [], cleanQuestion, label);
       }
     } finally {
       if (currentRequest === request) {

@@ -69,9 +69,9 @@ PowerShell 7 可生成额度盐：
 
 不要把上述真实值写入 Git、网页或聊天记录。
 
-## 第二阶段首次安装顺序
+## 数据库与向量配置
 
-1. 在 Supabase SQL Editor 完整执行 `supabase-ai-phase2.sql`。
+1. 按 [后台与数据库安全说明](SECURITY_SETUP.md) 安装空库或增量升级已有数据库。
 2. 在 Edge Functions Secrets 添加 `AI_EMBEDDING_ENABLED=true`、`AI_EMBEDDING_MODEL=text-embedding-v4`、`AI_EMBEDDING_DIMENSIONS=1024`。
 3. 如果生成回答和生成向量使用同一个百炼账号，不必重复添加 API Key 和 Base URL；系统会复用第一阶段配置。
 4. 重新部署 `campus-ai` 函数。
@@ -95,6 +95,12 @@ Remove-Item Env:AI_EMBEDDING_API_KEY
 
 成功时会显示每篇资料的切片数量，最后显示“向量重建完成”。如果只想检查切片逻辑，可以在具备 Supabase 服务端变量后使用 `--dry-run`，不会写入数据库或调用向量模型。
 
+## 回答终态与用量记录
+
+Responses 流以 `response.completed` 为正常结束。Chat Completions 流需依次收到 `finish_reason: "stop"` 和 `[DONE]`。提前断开、输出长度截断或模型报错都会结束本次生成，已收到的文字留在页面。旧 JSON 路径继续支持完整文本响应，明确标记失败或截断的响应按失败处理。协议见 [OpenAI Responses](https://developers.openai.com/api/reference/resources/responses/streaming-events)、[OpenAI Chat](https://developers.openai.com/api/reference/resources/chat)、[百炼 Responses](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses) 与 [百炼 Chat](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions)。
+
+在更新云函数前，先应用 `20261118000002_ai_usage_cancelled.sql`。只有成功生成的回答记为 `ok`。用户取消记为 `cancelled`，中断或模型错误记为 `error`，没有可靠资料记为 `no_match`，额度不足记为 `rate_limited`。日志写入失败时，函数日志记录尝试的状态和 HTTP 状态码或网络错误类型，学生页面仍显示实际回答状态。
+
 ## 后续自行同步资料
 
 推荐在 Supabase 创建一枚单独命名、可随时撤销的 Secret key，然后仅在本地终端临时设置：
@@ -106,7 +112,9 @@ node .\scripts\sync_knowledge.mjs
 Remove-Item Env:SUPABASE_SECRET_KEY
 ```
 
-脚本只上传整理后的校园资料，不上传聊天记录。Secret key 会绕过 RLS，绝不能放进 `js/api.js`。
+先完成静态同步迁移 `20261118000001_sync_static_knowledge.sql`。同步的新资料初始为草稿。资料字段完全相同时保留审核状态、版本和核验时间。已发布资料实质变化后回到草稿并清理旧切片，归档资料实质变化后仍留在归档，管理员可以恢复为草稿再审核。
+
+`node scripts/sync_knowledge.mjs --print-sql` 只输出 SQL，由维护者选定数据库后执行。该 SQL 和命令行直接同步调用同一个数据库函数。同步只上传整理后的校园资料。Secret key 会绕过 RLS，绝不能放进 `js/api.js`。
 
 ## 使用 Supabase CLI 重新部署函数（可选）
 

@@ -14,7 +14,6 @@ vm.runInContext(`${source}\n;globalThis.__KNOWLEDGE_EXPORT__ = { ITEMS, CATEGORI
 
 const { ITEMS: items, CATEGORIES: categories } = context.__KNOWLEDGE_EXPORT__;
 const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
-const now = new Date().toISOString();
 
 function clean(value) {
   if (value === null || value === undefined || value === '—') return '';
@@ -74,10 +73,7 @@ function toDocument(item) {
     summary: clean(item.summary),
     content,
     source_url: sourceUrl,
-    source_type: 'curated',
     source_date: sourceDate,
-    verified_at: null,
-    status: 'published',
     checksum,
     metadata: {
       category_id: item.cat,
@@ -85,7 +81,6 @@ function toDocument(item) {
       department: clean(item.dept),
       phone: clean(item.phone),
     },
-    updated_at: now,
   };
 }
 
@@ -93,34 +88,10 @@ const documents = items.map(toDocument).filter((document) => document.slug && do
 
 if (printSql) {
   const json = JSON.stringify(documents);
-  console.log(`
-insert into public.knowledge_documents (
-  slug, title, category, summary, content, source_url, source_type,
-  source_date, verified_at, status, checksum, metadata, updated_at
-)
-select
-  item.slug, item.title, item.category, item.summary, item.content,
-  item.source_url, item.source_type, item.source_date, item.verified_at,
-  item.status, item.checksum, item.metadata, item.updated_at
-from jsonb_to_recordset($knowledge$${json}$knowledge$::jsonb) as item(
-  slug text, title text, category text, summary text, content text,
-  source_url text, source_type text, source_date date, verified_at timestamptz,
-  status text, checksum text, metadata jsonb, updated_at timestamptz
-)
-on conflict (slug) do update set
-  title = excluded.title,
-  category = excluded.category,
-  summary = excluded.summary,
-  content = excluded.content,
-  source_url = excluded.source_url,
-  source_type = excluded.source_type,
-  source_date = excluded.source_date,
-  verified_at = excluded.verified_at,
-  status = excluded.status,
-  checksum = excluded.checksum,
-  metadata = excluded.metadata,
-  updated_at = excluded.updated_at;
-`);
+  // 避开正文中可能出现的 SQL 文本分隔符。
+  let delimiter = '$knowledge$';
+  while (json.includes(delimiter)) delimiter = delimiter.replace(/\$$/, '_$');
+  console.log(`select public.sync_static_knowledge(${delimiter}${json}${delimiter}::jsonb);`);
   process.exit(0);
 }
 
@@ -134,19 +105,17 @@ for (let index = 0; index < documents.length; index += 50) {
   const headers = {
     apikey: secretKey,
     'Content-Type': 'application/json',
-    Prefer: 'resolution=merge-duplicates,return=minimal',
   };
   if (!secretKey.startsWith('sb_secret_')) headers.Authorization = `Bearer ${secretKey}`;
 
-  const response = await fetch(`${projectUrl}/rest/v1/knowledge_documents?on_conflict=slug`, {
+  const response = await fetch(`${projectUrl}/rest/v1/rpc/sync_static_knowledge`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(batch),
+    body: JSON.stringify({ p_documents: batch }),
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`同步失败 (${response.status})：${detail}`);
+    throw new Error(`同步失败 (${response.status})。请检查服务端权限和静态知识同步迁移是否已安装。`);
   }
 }
 

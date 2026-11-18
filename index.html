@@ -8,7 +8,7 @@
   <meta name="description" content="山东工商学院校园 AI 办事助手：查询报到、选课、考试、资助、宿舍和校园最新消息。">
   <link rel="stylesheet" href="css/style.css?v=20260904-2">
   <link rel="stylesheet" href="css/mobile-app.css?v=20261115-5">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
 </head>
 <body class="mobile-app">
   <a class="skip-link" id="skip-to-content" href="#app-viewport">跳到主内容</a>
@@ -72,7 +72,7 @@
               <button id="ai-send" type="submit">发送</button>
             </form>
             <p class="ai-input-error" id="ai-input-error" role="status"></p>
-            <div class="ai-composer-meta"><span id="ai-input-privacy">请勿输入学号、手机号等个人信息</span><span id="ai-remaining"></span></div>
+            <div class="ai-composer-meta"><span id="ai-input-privacy">找不到资料时会保存去除部分个人信息的问题样本。请勿输入个人信息。</span><span id="ai-remaining"></span></div>
           </footer>
           <section class="ai-suggestion-section" aria-labelledby="ai-suggestion-title">
             <h2 id="ai-suggestion-title">试试这些问题</h2>
@@ -132,9 +132,10 @@
             <div class="comment-input-box">
               <label class="sr-only" for="comment-input">写下同学交流留言</label>
               <textarea id="comment-input" placeholder="写下你的疑问或办事经验…"></textarea>
-              <div class="comment-input-foot"><span class="comment-tip">提交后经审核公开</span><button class="btn btn-primary btn-sm" id="btn-post-comment" onclick="handleCurrentCommentSubmit()">发表</button></div>
+              <div class="comment-input-foot"><span class="comment-tip">留言和昵称会保存，审核通过后公开展示。</span><button class="btn btn-primary btn-sm" id="btn-post-comment" onclick="handleCurrentCommentSubmit()">发表</button></div>
             </div>
             <div class="comment-feed" id="sidebar-comment-feed"></div>
+            <button class="btn btn-outline btn-sm" id="sidebar-comment-more" type="button" hidden>更多留言</button>
           </section>
         </div>
       </section>
@@ -158,7 +159,7 @@
       <section class="app-page" id="page-me" data-page="me" aria-labelledby="me-page-title" hidden>
         <header class="page-header"><h1 id="me-page-title">我的</h1></header>
         <div class="page-content me-content">
-          <section class="profile-card"><div class="profile-avatar" id="profile-avatar">同</div><div class="profile-copy"><h2 id="profile-name">匿名同学</h2><p>昵称与使用记录仅保存在当前设备</p></div><button type="button" class="profile-edit" onclick="showAuthModal()">修改</button></section>
+          <section class="profile-card"><div class="profile-avatar" id="profile-avatar">同</div><div class="profile-copy"><h2 id="profile-name">匿名同学</h2><p>评论和投稿会使用此昵称</p></div><button type="button" class="profile-edit" onclick="showAuthModal()">修改</button></section>
           <section class="me-stat-grid">
             <button type="button" onclick="showMyList('bookmarks')"><span>我的收藏</span><strong id="bookmark-count">0</strong></button>
             <button type="button" onclick="showMyList('history')"><span>浏览记录</span><strong id="history-count">0</strong></button>
@@ -183,7 +184,7 @@
     </main>
   </div>
 
-  <div class="modal-overlay" id="modal-auth" style="display:none;"><div class="modal"><div class="modal-head"><h3>设置你的昵称</h3><button class="modal-close" onclick="hideModal('modal-auth')">×</button></div><div class="modal-body"><p class="form-msg modal-intro">无需注册账号，昵称只保存在当前浏览器，不会关联真实身份。</p><div class="form-group"><label for="auth-nickname">昵称</label><input type="text" id="auth-nickname" placeholder="如 山商新生、匿名同学" maxlength="20"></div><div class="form-group"><label class="agree-row"><input type="checkbox" id="auth-agree"><span>我已阅读并同意 <a href="terms.html" target="_blank">《用户协议》</a> 与 <a href="privacy.html" target="_blank">《隐私政策》</a></span></label></div><div id="auth-msg" class="form-msg"></div></div><div class="modal-foot"><button class="btn btn-outline" onclick="hideModal('modal-auth')">取消</button><button class="btn btn-primary" id="btn-do-auth" onclick="handleAuthSubmit()">保存昵称</button></div></div></div>
+  <div class="modal-overlay" id="modal-auth" style="display:none;"><div class="modal"><div class="modal-head"><h3>设置你的昵称</h3><button class="modal-close" onclick="hideModal('modal-auth')">×</button></div><div class="modal-body"><p class="form-msg modal-intro">无需注册账号。设置时昵称保存在本机，发表评论或投稿时会随内容一起保存。</p><div class="form-group"><label for="auth-nickname">昵称</label><input type="text" id="auth-nickname" placeholder="如 山商新生、匿名同学" maxlength="20"></div><div class="form-group"><label class="agree-row"><input type="checkbox" id="auth-agree"><span>我已阅读并同意 <a href="terms.html" target="_blank">《用户协议》</a> 与 <a href="privacy.html" target="_blank">《隐私政策》</a></span></label></div><div id="auth-msg" class="form-msg"></div></div><div class="modal-foot"><button class="btn btn-outline" onclick="hideModal('modal-auth')">取消</button><button class="btn btn-primary" id="btn-do-auth" onclick="handleAuthSubmit()">保存昵称</button></div></div></div>
 
   <dialog class="modal-overlay" id="modal-feedback" aria-labelledby="feedback-dialog-title">
     <div class="modal">
@@ -213,7 +214,7 @@
         <button class="modal-close" type="button" aria-label="关闭投稿弹窗" onclick="hideModal('modal-submit')">×</button>
       </div>
       <div class="modal-body">
-        <p class="form-msg modal-intro">分享办事攻略或补充最新政策，审核通过后会展示在校园信息中。</p>
+        <p class="form-msg modal-intro">投稿和当前昵称会保存，供管理员审核。采纳的内容可能整理后公开。</p>
         <div class="form-group"><label for="post-cat">所属板块</label><select id="post-cat" autofocus><option value="report">入学报到</option><option value="roll">学籍管理</option><option value="course">选课教学</option><option value="aid">奖助贷勤</option><option value="exam">考试相关</option><option value="dorm">宿舍生活</option><option value="campus">校园服务</option><option value="league">团学与创新创业</option><option value="grad">毕业就业</option></select></div>
         <div class="form-group"><label for="post-title">事项标题</label><input type="text" id="post-title" placeholder="如：东校区自助打印点汇总" required aria-describedby="post-title-error"><p class="post-field-error" id="post-title-error" role="status"></p></div>
         <div class="form-group"><label for="post-summary">一句话摘要</label><input type="text" id="post-summary" placeholder="简要说明这条信息能解决什么问题"></div>
@@ -229,11 +230,11 @@
   </dialog>
 
   <script src="js/data.js?v=20260919-1"></script>
-  <script src="js/api.js?v=20261116-1"></script>
-  <script src="js/app.js?v=20261115-5"></script>
+  <script src="js/api.js?v=20261118-3"></script>
+  <script src="js/app.js?v=20261118-3"></script>
   <script src="js/markdown.js?v=20260919-1"></script>
-  <script src="js/ai-stream.js?v=20260920-1"></script>
+  <script src="js/ai-stream.js?v=20261118-2"></script>
   <script src="js/ai-conversation.js?v=20260920-1"></script>
-  <script src="js/ai.js?v=20261115-5"></script>
+  <script src="js/ai.js?v=20261118-2"></script>
 </body>
 </html>

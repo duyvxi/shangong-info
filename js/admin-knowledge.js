@@ -186,6 +186,7 @@
     formFields.forEach((field) => { field.disabled = true; });
     showMessage('detail-status', '正在保存…');
     try {
+      const wasPublished = activeDocument.status === 'published';
       const result = await window.Api.reviewKnowledgeDocument(activeDocument, action, review);
       activeDocument = { ...activeDocument, ...result };
       renderDetail(activeDocument, false);
@@ -193,6 +194,7 @@
       showMessage('detail-status', `已保存。当前状态：${statusLabels[result.status]}。`);
       element('detail-status').focus();
       void load();
+      if (wasPublished !== (result.status === 'published')) window.dispatchEvent(new Event('knowledge-published-count-changed'));
     } catch (error) {
       element('reload').hidden = false;
       if (error.message === 'KNOWLEDGE_CONFLICT') {

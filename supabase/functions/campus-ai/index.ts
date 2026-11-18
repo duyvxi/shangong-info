@@ -113,19 +113,25 @@ function sanitizeConversationContext(value: unknown): ConversationTurn[] {
   });
 }
 
-function isContextualFollowUp(question: string, context: ConversationTurn[]) {
-  if (!context.length || question.length > 60) return false;
-  return /^(那|这个|这些|上述|刚才|还|再|其中)|(?:呢|吗|怎么办|怎么申请|什么材料|哪些材料|什么条件|哪些条件|什么时间|什么时候|具体流程|在哪里)[？?]?$/.test(question.trim());
+function isContextualFollowUp(question: string) {
+  const fragment = question.trim().replace(/[？?！!。]+$/, "")
+    .replace(/^(?:那(?:么)?|这个|这些|这条线路|上述|刚才|其中|还有|还|再)[，,\s]*/, "")
+    .replace(/[呢吗]$/, "");
+  // 整句必须是省略主题的问法。带有具体事项名称的问题独立检索。
+  return /^(?:(?:需要|要)?(?:准备|带|提交)?(?:什么|哪些)(?:材料|条件)?|怎么办|怎么申请|什么时间|什么时候|在哪里|具体流程|具体办理流程是什么|申请条件和限制是什么|时间安排是什么|运营时间是什么|具体位置在哪里|具体经过哪些站点|应该在哪里乘车|哪些类似的选择|哪些禁止事项|违反规定会怎样|哪些住宿要求)$/.test(fragment);
 }
 
-function retrievalQuestion(question: string, context: ConversationTurn[]) {
-  return isContextualFollowUp(question, context)
-    ? [...context.map((turn) => turn.question), question].join("；")
-    : question;
+function relevantConversation(question: string, context: ConversationTurn[]) {
+  if (!isContextualFollowUp(question)) return [];
+  const anchor = context.findLastIndex((turn) => !isContextualFollowUp(turn.question));
+  return anchor < 0 ? context : context.slice(anchor);
 }
 
-function streamResponse(origin: string | null, producer: (send: (event: string, data: unknown) => void) => Promise<void>) {
+function streamResponse(origin: string | null, requestSignal: AbortSignal,
+  producer: (send: (event: string, data: unknown) => void, signal: AbortSignal) => Promise<void>) {
   const encoder = new TextEncoder();
+  const disconnected = new AbortController();
+  const signal = AbortSignal.any([requestSignal, disconnected.signal]);
   const headers = new Headers({
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-store, no-transform",
@@ -143,15 +149,19 @@ function streamResponse(origin: string | null, producer: (send: (event: string, 
       // when retrieval takes several seconds without producing any bytes.
       controller.enqueue(encoder.encode(": connected\n\n"));
       const send = (event: string, data: unknown) => {
+        if (signal.aborted) return;
         try { controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)); }
-        catch { /* 浏览器已断开时停止写入。 */ }
+        catch { disconnected.abort(); }
       };
-      void producer(send)
+      const task = producer(send, signal)
         .catch((error) => console.error("campus-ai stream failed", error))
         .finally(() => {
           try { controller.close(); } catch { /* 浏览器已断开。 */ }
         });
+      // 客户端断开后，仍让运行时收尾并写入取消记录。
+      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(task);
     },
+    cancel() { disconnected.abort(); },
   });
   return new Response(body, { status: 200, headers });
 }
@@ -565,18 +575,29 @@ async function readModelStream(response: Response, style: string, onDelta: (text
   const decoder = new TextDecoder();
   let buffer = "";
   let answer = "";
+  let chatStopped = false;
+  let completed = false;
   const consumeBlock = (block: string) => {
     const eventName = block.match(/^event:\s*(.+)$/m)?.[1]?.trim() || "";
     const raw = block.split(/\r?\n/)
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice(5).trimStart())
       .join("\n");
-    if (!raw || raw === "[DONE]") return;
+    if (!raw) return;
+    if (raw.trim() === "[DONE]") {
+      // Chat 的传输结束标志还需配合正常停止原因。
+      if (style !== "chat_completions" || !chatStopped) {
+        throw new CampusAIError("MODEL_INCOMPLETE", "模型缺少正常结束原因");
+      }
+      completed = true;
+      return;
+    }
     let payload: Record<string, unknown>;
-    try { payload = JSON.parse(raw); } catch { return; }
+    try { payload = JSON.parse(raw); }
+    catch { throw new CampusAIError("MODEL_INCOMPLETE", "模型返回了不完整的事件"); }
     if (!payload.type && eventName) payload.type = eventName;
     const upstreamError = payload.error as Record<string, unknown> | undefined;
-    if (payload.type === "error" || upstreamError) {
+    if (payload.type === "error" || payload.type === "response.failed" || upstreamError) {
       throw new CampusAIError("MODEL_UPSTREAM", typeof upstreamError?.message === "string"
         ? upstreamError.message : "模型流式响应中断");
     }
@@ -585,22 +606,43 @@ async function readModelStream(response: Response, style: string, onDelta: (text
       answer += delta;
       onDelta(delta);
     }
+    if (style === "responses") {
+      if (payload.type === "response.incomplete") throw new CampusAIError("MODEL_INCOMPLETE", "模型未完整生成回答");
+      if (payload.type === "response.completed") {
+        const result = payload.response as Record<string, unknown> | undefined;
+        if (result?.status && result.status !== "completed") {
+          throw new CampusAIError("MODEL_INCOMPLETE", "结束事件的状态不一致");
+        }
+        completed = true;
+      }
+    } else {
+      const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0];
+      if (choice?.finish_reason === "stop") chatStopped = true;
+      else if (choice?.finish_reason) throw new CampusAIError("MODEL_INCOMPLETE", "模型未完整生成回答");
+    }
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, "\n");
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary >= 0) {
-      consumeBlock(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf("\n\n");
+  try {
+    while (!completed) {
+      const { value, done } = await reader.read().catch(() => {
+        throw new CampusAIError("MODEL_INCOMPLETE", "模型连接提前断开");
+      });
+      if (done) break;
+      // 保留包尾的回车，等下一包再判断它是否属于 CRLF。
+      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n|\r(?!$)/g, "\n");
+      let boundary = buffer.indexOf("\n\n");
+      while (!completed && boundary >= 0) {
+        consumeBlock(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf("\n\n");
+      }
     }
+    if (!completed) throw new CampusAIError("MODEL_INCOMPLETE", "模型连接提前结束");
+    return answer.trim();
+  } finally {
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) consumeBlock(buffer);
-  return answer.trim();
 }
 
 async function callModel(question: string, context: string, clientHash: string,
@@ -681,6 +723,14 @@ async function callModel(question: string, context: string, clientHash: string,
       answer = await readModelStream(response, style, onDelta);
     } else {
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+      const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0];
+      const finish = style === "responses" ? payload.status : choice?.finish_reason;
+      if (payload.error || (style === "responses" && finish === "failed")) {
+        throw new CampusAIError("MODEL_UPSTREAM", "模型返回错误");
+      }
+      if (finish && finish !== (style === "responses" ? "completed" : "stop")) {
+        throw new CampusAIError("MODEL_INCOMPLETE", "模型未完整生成回答");
+      }
       answer = extractResponseText(payload, style);
       if (answer && onDelta) onDelta(answer);
     }
@@ -695,13 +745,14 @@ async function callModel(question: string, context: string, clientHash: string,
 
 async function logUsage(entry: Record<string, unknown>) {
   try {
-    await restRequest("ai_usage", {
+    const response = await restRequest("ai_usage", {
       method: "POST",
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify(entry),
     });
-  } catch (error) {
-    console.warn("AI usage log failed", error);
+    if (!response.ok) console.warn("AI usage log failed", { status: entry.status, httpStatus: response.status });
+  } catch {
+    console.warn("AI usage log failed", { status: entry.status, reason: "network" });
   }
 }
 
@@ -730,6 +781,8 @@ function publicModelError(error: unknown) {
   const code = error instanceof CampusAIError ? error.code : "UNKNOWN";
   const publicMessage = message.includes("尚未配置")
     ? "校园助手尚未完成模型配置，请联系站点维护者"
+    : code === "MODEL_INCOMPLETE"
+    ? "回答中断，请点击“再次提问”重试"
     : code === "MODEL_TIMEOUT"
     ? "模型本次响应超时，请点击“再次提问”重试"
     : ["MODEL_BUSY", "MODEL_UPSTREAM", "MODEL_NETWORK"].includes(code)
@@ -756,7 +809,8 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
     const question = String(payload?.question || "").trim();
     const clientId = String(payload?.clientId || "").trim();
     const wantsStream = payload?.stream === true;
-    const conversation = sanitizeConversationContext(payload?.context);
+    const conversation = relevantConversation(question, sanitizeConversationContext(payload?.context));
+    const query = [...conversation.map((turn) => turn.question), question].join("；");
     if (question.length < 2 || question.length > 500) {
       return jsonResponse({ error: "问题长度需要在 2～500 个字符之间" }, 400, origin);
     }
@@ -769,6 +823,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
     clientHash = await sha256(`${salt}:${clientId}`);
 
     const quota = await timing.measure("quota", () => consumeQuota(clientHash));
+    request.signal.throwIfAborted();
     if (!quota?.allowed) {
       await timing.measure("usage_log", () => logUsage({
         client_hash: clientHash,
@@ -785,17 +840,23 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
     }
 
     if (wantsStream) {
-      return streamResponse(origin, async (send) => {
+      return streamResponse(origin, request.signal, async (send, signal) => {
         let streamedAnswer = "";
         let retrievalCount = 0;
         try {
           const documents = await timing.measure("knowledge", () => fetchKnowledge());
-          const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), documents, timing);
+          signal.throwIfAborted();
+          const retrieval = await retrieveKnowledge(query, documents, timing);
+          signal.throwIfAborted();
           const matches = retrieval.matches;
           retrievalCount = matches.length;
           if (matches.length === 0) {
             const answer = "现有知识库暂未收录这个问题的可靠资料。这个问题已进入待补充清单；你也可以补充具体学院、部门或事项名称后重新提问。";
             await timing.measure("unanswered_log", () => recordUnansweredQuestion(question));
+            signal.throwIfAborted();
+            send("meta", { sources: [], remaining: quota.remaining, noMatch: true, answerMode: "no_match" });
+            send("done", { answer, remaining: quota.remaining, noMatch: true, answerMode: "no_match", timing: timing.snapshot() });
+            signal.throwIfAborted();
             await timing.measure("usage_log", () => logUsage({
               client_hash: clientHash,
               provider: "none",
@@ -806,8 +867,6 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
               latency_ms: Date.now() - startedAt,
               status: "no_match",
             }));
-            send("meta", { sources: [], remaining: quota.remaining, noMatch: true, answerMode: "no_match" });
-            send("done", { answer, remaining: quota.remaining, noMatch: true, answerMode: "no_match", timing: timing.snapshot() });
             return;
           }
 
@@ -825,8 +884,18 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
             callModel(question, modelContext, clientHash, (delta) => {
               streamedAnswer += delta;
               send("delta", { text: delta });
-            }, request.signal, conversation)
+            }, signal, conversation)
           );
+          signal.throwIfAborted();
+          // 先确定学生看到的终态。日志库的速度和结果不影响结束事件。
+          send("done", {
+            answer: result.answer,
+            remaining: quota.remaining,
+            modelApiStyle: result.style,
+            modelThinking: result.thinking,
+            timing: timing.snapshot(),
+          });
+          signal.throwIfAborted();
           await timing.measure("usage_log", () => logUsage({
             client_hash: clientHash,
             provider: result.provider,
@@ -837,15 +906,12 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
             latency_ms: Date.now() - startedAt,
             status: "ok",
           }));
-          send("done", {
-            answer: result.answer,
-            remaining: quota.remaining,
-            modelApiStyle: result.style,
-            modelThinking: result.thinking,
-            timing: timing.snapshot(),
-          });
         } catch (error) {
-          console.error("campus-ai stream failed", error);
+          if (!signal.aborted) {
+            const failure = publicModelError(error);
+            console.error("campus-ai stream failed", failure.code);
+            send("error", { error: failure.publicMessage, code: failure.code, timing: timing.snapshot() });
+          }
           await timing.measure("usage_log", () => logUsage({
             client_hash: clientHash,
             provider: env("AI_PROVIDER", "unknown"),
@@ -854,19 +920,20 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
             input_chars: question.length,
             output_chars: streamedAnswer.length,
             latency_ms: Date.now() - startedAt,
-            status: request.signal.aborted ? "cancelled" : "error",
+            status: signal.aborted ? "cancelled" : "error",
           }));
-          const failure = publicModelError(error);
-          send("error", { error: failure.publicMessage, code: failure.code, timing: timing.snapshot() });
         }
       });
     }
 
     const documents = await timing.measure("knowledge", () => fetchKnowledge());
-    const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), documents, timing);
+    request.signal.throwIfAborted();
+    const retrieval = await retrieveKnowledge(query, documents, timing);
+    request.signal.throwIfAborted();
     const matches = retrieval.matches;
     if (matches.length === 0) {
       await timing.measure("unanswered_log", () => recordUnansweredQuestion(question));
+      request.signal.throwIfAborted();
       await timing.measure("usage_log", () => logUsage({
         client_hash: clientHash,
         provider: "none",
@@ -888,7 +955,8 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
 
     const sources = responseSources(matches);
     const modelContext = buildContext(matches, retrieval.today, retrieval.dimensions);
-    const result = await timing.measure("model", () => callModel(question, modelContext, clientHash, null, undefined, conversation));
+    const result = await timing.measure("model", () => callModel(question, modelContext, clientHash, null, request.signal, conversation));
+    request.signal.throwIfAborted();
 
     await timing.measure("usage_log", () => logUsage({
       client_hash: clientHash,
@@ -913,14 +981,16 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
       modelThinking: result.thinking,
     }, 200, origin);
   } catch (error) {
-    console.error("campus-ai failed", error);
+    const cancelled = request.signal.aborted;
+    if (!cancelled) console.error("campus-ai failed", publicModelError(error).code);
     await timing.measure("usage_log", () => logUsage({
       client_hash: clientHash,
       provider: env("AI_PROVIDER", "unknown"),
       model: env("AI_MODEL", "unknown"),
       latency_ms: Date.now() - startedAt,
-      status: "error",
+      status: cancelled ? "cancelled" : "error",
     }));
+    if (cancelled) return jsonResponse({ error: "提问已取消" }, 499, origin);
     const failure = publicModelError(error);
     return jsonResponse({ error: failure.publicMessage }, 500, origin);
   }

@@ -1,0 +1,47 @@
+name: 合并前离线验收
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-checks:
+    name: 项目离线验收
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装临时测试依赖
+        run: |
+          npm install --prefix "$RUNNER_TEMP/campus-test" --no-save --no-package-lock --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.4 @electric-sql/pglite-pgvector@0.0.5 playwright-core@1.57.0 @supabase/supabase-js@2.119.0
+          node "$RUNNER_TEMP/campus-test/node_modules/playwright-core/cli.js" install --with-deps chromium
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装固定版本的采集测试依赖
+        run: |
+          python -m pip install -r scripts/requirements-crawler.txt
+          python -m pip check
+          python -B scripts/test_crawl_knowledge.py
+      - name: 本地数据库与浏览器验收
+        run: node scripts/test_database_phase1.mjs "$RUNNER_TEMP/campus-test"
+      - name: 对话、流式、检索与质量回归
+        run: |
+          node scripts/test_ai_conversation.mjs
+          node scripts/test_ai_streaming.mjs
+          node scripts/test_ai_performance.mjs
+          node scripts/test_knowledge_retrieval.mjs
+          node scripts/test_historical_retrieval.mjs
+          node scripts/test_multi_intent_retrieval.mjs
+          node scripts/test_safe_markdown.mjs
+          node scripts/test_ai_quality_baseline.mjs
+          node scripts/benchmark_ai_quality.mjs

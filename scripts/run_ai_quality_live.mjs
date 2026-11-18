@@ -57,6 +57,7 @@ async function readStream(response, started) {
   let donePayload = null;
   let streamError = false;
   const consume = (block) => {
+    if (donePayload || streamError) return;
     const event = block.match(/^event:\s*(.+)$/m)?.[1]?.trim();
     const raw = block.split(/\r?\n/).filter((line) => line.startsWith('data:'))
       .map((line) => line.slice(5).trimStart()).join('\n');
@@ -67,7 +68,7 @@ async function readStream(response, started) {
     else if (event === 'delta' && typeof data.text === 'string') {
       if (!Number.isFinite(firstTextMs) && data.text) firstTextMs = performance.now() - started;
       answer += data.text;
-    } else if (event === 'done') {
+    } else if (event === 'done' && typeof data.answer === 'string' && data.answer.trim()) {
       donePayload = data;
       if (typeof data.answer === 'string' && data.answer.length >= answer.length) answer = data.answer;
     } else if (event === 'error') streamError = true;
@@ -75,7 +76,7 @@ async function readStream(response, started) {
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
+    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n|\r(?!$)/g, '\n');
     let boundary = buffer.indexOf('\n\n');
     while (boundary >= 0) {
       consume(buffer.slice(0, boundary));
@@ -83,8 +84,6 @@ async function readStream(response, started) {
       boundary = buffer.indexOf('\n\n');
     }
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) consume(buffer);
   const completeMs = performance.now() - started;
   if (streamError) return { outcome: 'stream_error', complete_ms: completeMs };
   if (!donePayload || !answer) return { outcome: 'stream_incomplete', complete_ms: completeMs };

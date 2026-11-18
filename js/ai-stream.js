@@ -24,7 +24,7 @@
 
     return {
       push(chunk) {
-        buffer += String(chunk || '').replace(/\r\n?/g, '\n');
+        buffer = (buffer + String(chunk || '')).replace(/\r\n|\r(?!$)/g, '\n');
         let boundary = buffer.indexOf('\n\n');
         while (boundary >= 0) {
           dispatch(buffer.slice(0, boundary));
@@ -33,7 +33,7 @@
         }
       },
       finish() {
-        if (buffer.trim()) dispatch(buffer);
+        // 未收到空行的尾包不是完整事件。
         buffer = '';
       },
     };
@@ -46,6 +46,7 @@
     const state = { answer: '', meta: {}, done: null };
     let streamError = null;
     const parser = createParser(({ event, data }) => {
+      if (state.done || streamError) return;
       const payload = data && typeof data === 'object' ? data : {};
       if (event === 'meta') {
         state.meta = payload;
@@ -56,6 +57,7 @@
         state.answer += text;
         handlers.onDelta?.(text, state.answer);
       } else if (event === 'done') {
+        if (typeof payload.answer !== 'string' || !payload.answer.trim()) return;
         state.done = payload;
         if (typeof payload.answer === 'string' && payload.answer.length >= state.answer.length) {
           state.answer = payload.answer;
@@ -69,19 +71,23 @@
       }
     });
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      parser.push(decoder.decode(value, { stream: true }));
-    }
-    parser.push(decoder.decode());
-    parser.finish();
-    if (streamError) throw streamError;
-    if (!state.done) {
-      const error = new Error('回答连接提前结束，可重试');
+    function incomplete() {
+      const error = new Error('回答中断，请点击“再次提问”重试');
       error.code = 'STREAM_INCOMPLETE';
       error.partialAnswer = state.answer;
-      throw error;
+      return error;
+    }
+    try {
+      while (!state.done && !streamError) {
+        const { value, done } = await reader.read().catch(() => { throw incomplete(); });
+        if (done) break;
+        parser.push(decoder.decode(value, { stream: true }));
+      }
+      if (streamError) throw streamError;
+      if (!state.done) throw incomplete();
+    } finally {
+      void reader.cancel().catch(() => {});
+      reader.releaseLock();
     }
     return { ...state.meta, ...state.done, answer: state.answer };
   }

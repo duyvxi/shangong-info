@@ -307,7 +307,7 @@ CREATE POLICY "Feedbacks viewable by creator or admin" ON public.feedbacks FOR S
 DROP POLICY IF EXISTS "Feedbacks can be updated by admin" ON public.feedbacks;
 CREATE POLICY "Feedbacks can be updated by admin" ON public.feedbacks FOR UPDATE USING (true);
 
--- submissions 策略（v2 匿名化：任何人可投稿，投稿人身份以昵称+本地匿名ID标识）
+-- submissions 策略由安全脚本收紧。匿名投稿保留昵称，账号仅用于已登录用户。
 DROP POLICY IF EXISTS "Authenticated users can submit articles" ON public.submissions;
 DROP POLICY IF EXISTS "Anyone can submit articles" ON public.submissions;
 CREATE POLICY "Anyone can submit articles" ON public.submissions FOR INSERT WITH CHECK (true);
@@ -357,15 +357,8 @@ DROP POLICY IF EXISTS "Site settings insertable by admin" ON public.site_setting
 CREATE POLICY "Site settings insertable by admin" ON public.site_settings FOR INSERT WITH CHECK (true);
 
 -- ==============================================================================
--- 统一授予 anon 与 authenticated 角色全部访问权限
+-- 具体表和视图的访问权限由安全脚本授予
 -- ==============================================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
-
-GRANT SELECT ON public.view_top_items TO anon, authenticated;
-GRANT SELECT ON public.view_search_ranking TO anon, authenticated;
-GRANT SELECT ON public.view_active_news TO anon, authenticated;
 -- 注意：这是项目早期的基础建表脚本。执行后必须继续执行
 -- supabase-security-phase2.sql，以应用当前管理员权限和 RLS 安全规则。

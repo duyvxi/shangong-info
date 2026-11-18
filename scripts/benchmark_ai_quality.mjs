@@ -156,12 +156,16 @@ export function evaluateAnswers(cases, responseCases) {
     const response = responses.get(testCase.id) || {};
     const answer = String(response.answer || '');
     const sourceSlugs = Array.isArray(response.sources)
-      ? response.sources.map((source) => typeof source === 'string' ? source : source?.slug).filter(Boolean)
+      ? response.sources.map((source) => typeof source === 'string' ? source : source?.slug)
       : [];
     const points = scorePoints(testCase.required_points, answer);
     const groupsCovered = sourceGroupsCovered(testCase.required_source_groups, sourceSlugs);
     const forbiddenHits = (testCase.forbidden || []).filter((pattern) => includesForbiddenClaim(answer, pattern));
-    const citationPresent = testCase.expected_behavior === 'abstain' || /\[\d+\]/.test(answer);
+    // 引用编号对应响应中来源的原始顺序，空槽位也不能算有效来源。
+    const citations = [...answer.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
+    const invalidCitations = citations.filter((index) => !sourceSlugs[index - 1]);
+    const citationPresent = (testCase.expected_behavior === 'abstain' || citations.length > 0)
+      && invalidCitations.length === 0;
     return {
       id: testCase.id,
       category: testCase.category,
@@ -173,7 +177,8 @@ export function evaluateAnswers(cases, responseCases) {
       source_groups_total: testCase.required_source_groups.length,
       forbidden_hits: forbiddenHits,
       citation_present: citationPresent,
-      passed: points.covered === points.total
+      invalid_citations: invalidCitations,
+      passed: Boolean(answer.trim()) && points.covered === points.total
         && groupsCovered === testCase.required_source_groups.length
         && forbiddenHits.length === 0
         && citationPresent,
@@ -217,13 +222,16 @@ function printReport(report) {
     console.log(`历史资料正确标注率：${percent(summary.historical_label_rate)}`);
     console.log(`无依据克制率：${percent(summary.abstention_rate)}`);
   }
-  for (const item of report.cases.filter((entry) => entry.missing_points.length || entry.forbidden_hits?.length
-    || entry.source_groups_covered !== entry.source_groups_total)) {
+  for (const item of report.cases) {
     const parts = [];
-    if (item.source_groups_covered !== item.source_groups_total) parts.push(`来源 ${item.source_groups_covered}/${item.source_groups_total}`);
+    const missingSources = item.source_groups_covered !== item.source_groups_total;
+    if (missingSources) parts.push(`来源 ${item.source_groups_covered}/${item.source_groups_total}`);
     if (item.missing_points.length) parts.push(`缺少：${item.missing_points.join('、')}`);
     if (item.forbidden_hits?.length) parts.push(`禁用表述：${item.forbidden_hits.join('、')}`);
-    console.log(`FAIL ${item.id} ${parts.join('；')}`);
+    if (item.invalid_citations?.length) parts.push(`无效引用：${item.invalid_citations.map((index) => `[${index}]`).join('、')}`);
+    else if (item.citation_present === false) parts.push('缺少有效引用');
+    if (item.passed === false && !parts.length) parts.push('回答为空');
+    if (parts.length) console.log(`${missingSources || item.passed === false ? 'FAIL' : 'INFO'} ${item.id} ${parts.join('；')}`);
   }
 }
 
@@ -243,6 +251,10 @@ async function main() {
   if (output) {
     await writeFile(output, JSON.stringify({ schema_version: 1, created_at: new Date().toISOString(), ...report }, null, 2), { flag: 'wx' });
     console.log(`报告已写入 ${output}`);
+  }
+  // 必选来源和既定答案规则是硬检查。离线关键点覆盖率仅报告实测。
+  if (report.cases.some((item) => item.passed === false || item.source_groups_covered !== item.source_groups_total)) {
+    process.exitCode = 1;
   }
 }
 
