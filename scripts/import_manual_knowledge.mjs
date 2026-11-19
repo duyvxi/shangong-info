@@ -185,13 +185,21 @@ export async function importDocuments(documents, options) {
   if (dryRun) return { inserted: documents.length, updated: 0, unchanged: 0, demoted: 0, totalChunks, dryRun: true };
   if (!projectUrl || !secretKey) throw new Error('缺少 SUPABASE_URL 或 SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY。');
 
-  const existingRows = await request(
-    projectUrl,
-    secretKey,
-    'knowledge_documents?select=slug,status,checksum,verified_at,canonical_url,content_format&limit=1000',
-  );
-  const existingBySlug = new Map((existingRows || []).map((row) => [row.slug, row]));
-  const existingByUrl = new Map((existingRows || []).filter((row) => row.canonical_url).map((row) => [row.canonical_url, row]));
+  const existingBySlug = new Map();
+  const existingByUrl = new Map();
+  // 按本次输入的身份字段查询，单批最多命中 80 条，覆盖任意位置的旧资料。
+  for (let index = 0; index < documents.length; index += 40) {
+    const batch = documents.slice(index, index + 40);
+    const rows = await request(projectUrl, secretKey, 'rpc/find_manual_knowledge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_slugs: batch.map((document) => document.slug),
+        p_urls: batch.map((document) => document.canonical_url).filter(Boolean) }),
+    });
+    for (const row of rows) {
+      existingBySlug.set(row.slug, row);
+      if (row.canonical_url) existingByUrl.set(row.canonical_url, row);
+    }
+  }
   const changed = [];
   let inserted = 0;
   let updated = 0;
@@ -210,22 +218,15 @@ export async function importDocuments(documents, options) {
       continue;
     }
 
-    const next = { ...document, updated_at: now };
     if (existing) {
       updated += 1;
-      // 已对外发布的内容一旦变化，自动退回待审核，避免定时任务静默替换答案依据。
-      if (existing.status === 'published') {
-        next.status = 'draft';
-        demoted += 1;
-      } else {
-        next.status = existing.status;
-      }
-      next.verified_at = next.status === 'published' ? existing.verified_at : null;
+      if (existing.status === 'published') demoted += 1;
     } else {
       inserted += 1;
-      next.status = 'draft';
     }
-    changed.push(next);
+    // 状态与核验时间由数据库换版规则管理，避免把旧快照写回正在审核的记录。
+    const { status: _status, verified_at: _verifiedAt, ...fields } = document;
+    changed.push({ ...fields, updated_at: now });
   }
 
   for (let index = 0; index < changed.length; index += 40) {

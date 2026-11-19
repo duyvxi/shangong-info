@@ -42,10 +42,14 @@ export function requestedYear(question, today = shanghaiToday()) {
   return hasAnnualIntent(question) ? currentYear : null;
 }
 
+export function historicalTargetYear(question, today = shanghaiToday()) {
+  return hasAnnualIntent(question) ? requestedYear(question, today) : null;
+}
+
 export function selectKnowledgeScope(question, documents, today = shanghaiToday()) {
   const activeDocuments = documents.filter((document) => isEffective(document, today));
-  const targetYear = requestedYear(question, today);
-  if (!targetYear || !hasAnnualIntent(question)) {
+  const targetYear = historicalTargetYear(question, today);
+  if (!targetYear) {
     return { currentDocuments: activeDocuments, historicalDocuments: [], requestedYear: null, topicKey: null };
   }
 

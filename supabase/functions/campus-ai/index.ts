@@ -1,16 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createTimings } from "../_shared/timing.js";
-import { historicalReferenceMeta, selectKnowledgeScope } from "../_shared/historical.js";
+import { historicalTargetYear } from "../_shared/historical.js";
 import {
   applicationWindowState,
   composeDocumentContent,
   detectQuestionDimensions,
   diversifyDocumentMatches,
   fuseDocumentMatches,
-  rankDocumentsWithSignals,
   shanghaiToday,
 } from "../_shared/multi-intent.js";
-import { normalizeText } from "../_shared/retrieval.js";
+import { normalizeText, tokenize, topicMatchesQuestion } from "../_shared/retrieval.js";
 
 type KnowledgeDocument = {
   id?: string;
@@ -43,23 +42,27 @@ type RetrievalMatch = KnowledgeDocument & {
   chunk_ids?: string[];
 };
 
-type SemanticMatch = {
-  chunk_id: string;
-  document_id: string;
-  document_revision: string;
-  slug: string;
-  title: string;
-  category: string;
-  content: string;
-  source_url: string | null;
-  source_date: string | null;
-  verified_at: string | null;
-  semantic_score: number;
-  source_type?: KnowledgeDocument["source_type"];
-  effective_from?: string | null;
-  effective_until?: string | null;
-  metadata?: Record<string, unknown> | null;
+type KnowledgeCandidate = Pick<KnowledgeDocument, "slug" | "title" | "category"> & {
+  id: string;
+  revision: string;
+  metadata?: KnowledgeDocument["metadata"];
+  retrieval_score: number;
+  retrieval_method?: RetrievalMatch["retrieval_method"];
+  semantic_score?: number;
+  chunk_id?: string;
+  chunk_ids?: string[];
+  notice_year?: number;
+  requested_year?: number;
+  reference_mode?: RetrievalMatch["reference_mode"];
 };
+
+type KnowledgeCandidates = {
+  keyword: KnowledgeCandidate[];
+  semantic: KnowledgeCandidate[];
+  historical: KnowledgeCandidate[];
+};
+
+type HydratedDocument = KnowledgeDocument & { chunks: Array<{ id: string; content: string }> };
 
 type ConversationTurn = {
   question: string;
@@ -276,15 +279,6 @@ async function consumeQuota(clientHash: string) {
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
-async function fetchKnowledge(): Promise<KnowledgeDocument[]> {
-  const fields = "id,revision,reviewed_audience:last_review->>audience,slug,title,category,summary,content,source_url,source_type,source_date,verified_at,effective_from,effective_until,status,metadata";
-  const response = await restRequest(
-    `knowledge_documents?select=${fields}&status=eq.published&order=updated_at.desc&limit=500`,
-  );
-  if (!response.ok) throw new Error(`知识库读取失败：${await response.text()}`);
-  return response.json() as Promise<KnowledgeDocument[]>;
-}
-
 function sourceKind(document: KnowledgeDocument | RetrievalMatch) {
   if (document.source_type === "official_notice") return "官方通知";
   const sourceClass = String(document.metadata?.source_class || "");
@@ -383,68 +377,80 @@ async function createQuestionEmbedding(question: string) {
   }
 }
 
-async function semanticSearch(question: string, timing: ReturnType<typeof createTimings>): Promise<SemanticMatch[]> {
-  const embedding = await timing.measure("embedding", () => createQuestionEmbedding(question));
-  if (!embedding) return [];
-  const threshold = Math.max(0, Math.min(Number(env("AI_SEMANTIC_THRESHOLD", "0.55")) || 0.55, 1));
-  return timing.measure("vector_rpc", async () => {
-    const response = await restRequest("rpc/match_knowledge_chunks", {
-      method: "POST",
-      body: JSON.stringify({
-        p_query_embedding: embedding,
-        p_match_threshold: threshold,
-        p_match_count: 12,
-      }),
-    });
-    if (!response.ok) {
-      console.warn("Semantic RPC unavailable; falling back to keywords", await response.text());
-      return [];
-    }
-    return response.json();
-  });
-}
-
-async function retrieveKnowledge(question: string, documents: KnowledgeDocument[], timing: ReturnType<typeof createTimings>) {
+async function retrieveKnowledge(question: string, timing: ReturnType<typeof createTimings>) {
   const today = shanghaiToday();
   const dimensions = detectQuestionDimensions(question);
-  const scope = selectKnowledgeScope(question, documents, today);
-  const keywordMatches = await timing.measure("keyword", () =>
-    rankDocumentsWithSignals(question, scope.currentDocuments, 12, today)
-  ) as Array<KnowledgeDocument & { retrieval_score: number }>;
-  let semanticMatches: SemanticMatch[] = [];
-  try {
-    semanticMatches = await semanticSearch(question, timing);
-  } catch (error) {
-    console.warn("Semantic search failed; continuing with keyword results", error);
-  }
-  const documentsBySlug = new Map(scope.currentDocuments.map((document) => [document.slug, document]));
-  // 读取片段和正文时可能正好换版，只合并与本次读取正文同版本的片段。
-  semanticMatches = semanticMatches.flatMap((row) => {
-    const document = documentsBySlug.get(row.slug);
-    return document?.revision && document.revision === row.document_revision
-      ? [{ ...document, ...row, content: row.content }]
-      : [];
-  });
-  const currentMatches = diversifyDocumentMatches(
-    fuseDocumentMatches(keywordMatches, semanticMatches, 12),
-    dimensions,
-    5,
-    question,
-  )
-    .map((document) => ({ ...document, reference_mode: "current" as const }));
-  const historicalMatches = scope.historicalDocuments.map((document) => ({
-    ...document,
-    ...historicalReferenceMeta(document, scope.requestedYear),
-    retrieval_score: 0,
-    retrieval_method: "historical_keyword" as const,
+  const embedding = await timing.measure("embedding", () => createQuestionEmbedding(question));
+  const threshold = Math.max(0, Math.min(Number(env("AI_SEMANTIC_THRESHOLD", "0.55")) || 0.55, 1));
+  const params = {
+    p_question: normalizeText(question),
+    p_tokens: tokenize(question),
+    p_today: today,
+    p_history_year: historicalTargetYear(question, today),
+    p_rank_year: Number(question.match(/\b(20\d{2})\s*年?/)?.[1] || today.slice(0, 4)),
+    p_dimensions: dimensions,
+    p_major_transfer: topicMatchesQuestion(question, { metadata: { topic_key: "major-transfer" } }),
+    p_threshold: threshold,
+  };
+  const find = async (vector: number[] | null) => {
+    const response = await restRequest("rpc/find_knowledge_candidates", {
+      method: "POST", body: JSON.stringify({ ...params, p_embedding: vector }),
+    });
+    if (!response.ok) throw new Error(`知识候选查询失败（HTTP ${response.status}）`);
+    return await response.json() as KnowledgeCandidates;
+  };
+
+  const candidates = embedding
+    ? await timing.measure("vector_rpc", () => find(embedding)).catch(() => {
+        console.warn("Semantic search failed; retrying keyword results");
+        return timing.measure("keyword", () => find(null));
+      })
+    : await timing.measure("keyword", () => find(null));
+
+  const historical = candidates.historical.map((candidate) => ({
+    ...candidate, reference_mode: "historical_reference" as const, retrieval_score: 0, retrieval_method: "historical_keyword" as const,
   }));
-  const matches = historicalMatches.length
-    ? [...currentMatches.slice(0, Math.max(0, 5 - historicalMatches.length)), ...historicalMatches]
-    : currentMatches;
+  const current = diversifyDocumentMatches(
+    fuseDocumentMatches(candidates.keyword, candidates.semantic, 12),
+    dimensions, 5 - historical.length, question,
+  ) as KnowledgeCandidate[];
+  const selected: KnowledgeCandidate[] = [
+    ...current.map((candidate) => ({ ...candidate, reference_mode: "current" as const })),
+    ...historical,
+  ];
+
+  const matches = await timing.measure("knowledge", async (): Promise<RetrievalMatch[]> => {
+    if (!selected.length) return [];
+    // 只读最终选中的版本。若检索和取正文之间改版，旧候选直接舍弃。
+    const response = await restRequest("rpc/read_knowledge_matches", {
+      method: "POST",
+      body: JSON.stringify({
+        p_today: today,
+        p_matches: selected.map(({ id, revision, chunk_ids, requested_year }) =>
+          ({ id, revision, chunk_ids: chunk_ids || [], requested_year: requested_year ?? null })),
+      }),
+    });
+    if (!response.ok) throw new Error(`命中资料读取失败（HTTP ${response.status}）`);
+    const documents = await response.json() as HydratedDocument[];
+    const byVersion = new Map(documents.map((document) => [`${document.id}:${document.revision}`, document]));
+    return selected.flatMap((candidate) => {
+      const document = byVersion.get(`${candidate.id}:${candidate.revision}`);
+      if (!document) return [];
+      const { chunks, ...fields } = document;
+      return [{
+        ...candidate, ...fields,
+        content: chunks[0]?.content || document.content,
+        additional_contents: chunks.slice(1).map((chunk) => chunk.content),
+        chunk_ids: chunks.map((chunk) => chunk.id),
+        retrieval_method: candidate.retrieval_method || "keyword",
+      }];
+    });
+  });
+  const hasHistory = matches.some((document) => document.reference_mode === "historical_reference");
   return {
     matches,
-    mode: semanticMatches.length > 0 ? "hybrid" : "keyword",
-    answerMode: historicalMatches.length > 0 ? "historical_reference" : "knowledge",
+    mode: matches.some((document) => document.chunk_ids?.length) ? "hybrid" : "keyword",
+    answerMode: hasHistory ? "historical_reference" : "knowledge",
     today,
     dimensions,
   };
@@ -789,8 +795,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
         let streamedAnswer = "";
         let retrievalCount = 0;
         try {
-          const documents = await timing.measure("knowledge", () => fetchKnowledge());
-          const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), documents, timing);
+          const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), timing);
           const matches = retrieval.matches;
           retrievalCount = matches.length;
           if (matches.length === 0) {
@@ -862,8 +867,7 @@ async function handleRequest(request: Request, timing: ReturnType<typeof createT
       });
     }
 
-    const documents = await timing.measure("knowledge", () => fetchKnowledge());
-    const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), documents, timing);
+    const retrieval = await retrieveKnowledge(retrievalQuestion(question, conversation), timing);
     const matches = retrieval.matches;
     if (matches.length === 0) {
       await timing.measure("unanswered_log", () => recordUnansweredQuestion(question));
