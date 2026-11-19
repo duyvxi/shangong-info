@@ -1,20 +1,13 @@
 # -*- coding: utf-8 -*-
-"""
-山东工商学院校园信息聚合站 - 内容自动抓取脚本
-定时由 GitHub Actions 调用(每6小时)，抓取官网/教务处/学生处列表页，
-提取(标题,链接,日期)，按 URL 数字ID 去重后写入 Supabase feeds 待审表。
-"""
+"""定时读取官网通知列表，将新消息写入 Supabase 待审表。"""
 import os
-import re
 import sys
-import hashlib
-import requests
-from bs4 import BeautifulSoup
-from supabase import create_client
+from dataclasses import dataclass
+from urllib.parse import urlsplit
 
-# 环境变量（由 GitHub Actions secrets 注入）
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
-SUPABASE_KEY = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+from bs4 import BeautifulSoup
+
+from crawl_knowledge import SafeFetcher, SupabaseRest, normalize_url, should_queue_url
 
 # 抓取源配置：(key, 中文名, 列表页URL, 默认归属板块)
 SOURCES = [
@@ -23,120 +16,111 @@ SOURCES = [
     {"key": "xsc", "name": "学生处·通知公告", "url": "https://xsc.sdtbu.edu.cn/index/tzgg.htm", "cat": None},
 ]
 
-UA = {"User-Agent": "Mozilla/5.0 (SDTBU CampusInfoBot/1.0; +https://github.com)"}
-TIMEOUT = 15
-
-
-def fingerprint_of(url: str) -> str:
-    """从 URL 提取数字ID作为去重指纹。
-    兼容 info/栏目ID/文章ID.htm、detailnew.jsp?urltype=...&wbnewsid=数字 等格式。
-    """
-    nums = re.findall(r"\d+", url)
-    return "|".join(nums) if nums else hashlib.md5(url.encode("utf-8")).hexdigest()
-
 
 def fetch_list_page(url: str):
-    """抓取列表页 HTML，失败返回 None。"""
-    try:
-        r = requests.get(url, headers=UA, timeout=TIMEOUT)
-        if r.status_code != 200:
-            return None
-        r.encoding = r.apparent_encoding or "utf-8"
-        return r.text
-    except Exception as e:
-        print(f"[warn] 抓取失败 {url}: {e}")
-        return None
+    """复用官网采集的 DNS、跳转、robots 和响应大小检查。"""
+    return SafeFetcher(urlsplit(url).hostname).fetch(url)
 
 
-def parse_links(html: str, base: str):
-    """解析列表页，提取 (标题, 链接, 日期原文)。"""
+def parse_links(html: bytes, base: str):
     soup = BeautifulSoup(html, "html.parser")
-    items = []
-    for a in soup.select("a[href]"):
-        href = a.get("href", "")
-        title = a.get("title") or a.get_text(" ", strip=True)
-        if not title or len(title) < 4:
+    allowed_hosts = SafeFetcher(urlsplit(base).hostname).allowed_hosts
+    for anchor in soup.select("a[href]"):
+        title = (anchor.get("title") or anchor.get_text(" ", strip=True)).strip()
+        if len(title) < 4:
             continue
-        if href.startswith("javascript") or href.startswith("mailto"):
-            continue
-        full = requests.compat.urljoin(base, href)
-        date = None
-        parent = a.find_parent("li") or a.find_parent("div")
-        if parent:
-            tm = parent.find("span", class_="time")
-            if tm:
-                date = tm.get_text(strip=True)
-        items.append({"title": title, "link": full, "date": date})
-    return items
-
-
-def is_crawl_paused(supabase) -> bool:
-    """查询站点配置表 site_settings，判断是否处于暂停自动抓取状态。"""
-    try:
-        resp = supabase.table("site_settings").select("value").eq("key", "crawl_paused").maybe_single().execute()
-        return bool(resp.data and resp.data.get("value") == "true")
-    except Exception as e:
-        print(f"[warn] 查询暂停配置失败（默认继续抓取）: {e}")
-        return False
-
-
-def main():
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        print("[error] 缺少 SUPABASE_URL / SUPABASE_SECRET_KEY 环境变量")
-        sys.exit(1)
-
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-    # 后台暂停开关检查：若管理员已在后台暂停自动抓取，则直接退出
-    if is_crawl_paused(supabase):
-        print("[pause] 管理员已在后台暂停自动抓取，本次跳过。")
-        sys.exit(0)
-
-    # 拉取已入库指纹，避免重复写入
-    known = set()
-    try:
-        resp = supabase.table("feeds").select("fingerprint").limit(1000).execute()
-        for row in resp.data:
-            known.add(row["fingerprint"])
-    except Exception as e:
-        print(f"[warn] 查询已入库指纹失败: {e}")
-
-    all_rows = []
-    for src in SOURCES:
-        html = fetch_list_page(src["url"])
-        if not html:
-            continue
-        for p in parse_links(html, src["url"]):
-            p["source"] = src["key"]
-            p["source_name"] = src["name"]
-            p["cat"] = src["cat"]
-            all_rows.append(p)
-
-    # 指纹去重 + 跳过已入库
-    seen = set()
-    added = 0
-    for r in all_rows:
-        fp = fingerprint_of(r["link"])
-        if fp in seen or fp in known:
-            continue
-        seen.add(fp)
         try:
-            supabase.table("feeds").insert({
-                "source": r["source"],
-                "source_name": r["source_name"],
-                "title": r["title"],
-                "link": r["link"],
-                "fingerprint": fp,
-                "pub_date": r["date"] or None,
-                "status": "pending",
-            }).execute()
-            added += 1
-            print(f"[new] {r['source_name']} | {r['title']}")
-        except Exception as e:
-            print(f"[skip] {r['title']} (可能已存在): {e}")
+            link = normalize_url(anchor["href"], base)
+        except ValueError:
+            continue
+        if not should_queue_url(link, allowed_hosts):
+            continue
+        parent = anchor.find_parent("li") or anchor.find_parent("div")
+        date = parent.find("span", class_="time") if parent else None
+        yield {"title": title, "link": link, "date": date.get_text(strip=True) if date else None}
 
-    print(f"[fetch] 扫描 {len(all_rows)} 条，新增 {added} 条待审内容")
+
+@dataclass
+class FeedRun:
+    paused: bool = False
+    pause_error: bool = False
+    source_failures: int = 0
+    write_failures: int = 0
+    scanned: int = 0
+    added: int = 0
+    duplicates: int = 0
+
+    @property
+    def failed(self) -> bool:
+        return self.pause_error or self.source_failures > 0 or self.write_failures > 0
+
+    def summarize(self) -> int:
+        status = "failed" if self.failed else "paused" if self.paused else "ok"
+        print(f"[fetch] status={status} scanned={self.scanned} added={self.added} "
+              f"duplicates={self.duplicates} source_errors={self.source_failures} "
+              f"write_errors={self.write_failures} pause_error={int(self.pause_error)}")
+        return int(self.failed)
+
+
+def error_kind(error: Exception) -> str:
+    # 只显示错误类别和可识别的 HTTP 状态，避免透出数据库响应正文。
+    prefix, _, rest = str(error).partition(" ")
+    code = rest[:3]
+    return f"HTTP {code}" if prefix in {"HTTP", "Supabase"} and code.isdecimal() else type(error).__name__
+
+
+def collect(database: SupabaseRest, sources=SOURCES, fetch_page=fetch_list_page) -> FeedRun:
+    result = FeedRun()
+    try:
+        rows = database.request("GET", "site_settings",
+                                params={"select": "value", "key": "eq.crawl_paused", "limit": "1"})
+        value = rows[0]["value"] if rows else None
+        if value not in {"true", "false"}:
+            raise ValueError("缺少有效的暂停配置")
+    except Exception as error:
+        result.pause_error = True
+        print(f"[error] 暂停配置读取失败，未访问源站：{error_kind(error)}")
+        return result
+
+    if value == "true":
+        result.paused = True
+        return result
+
+    for source in sources:
+        try:
+            page = fetch_page(source["url"])
+            items = list(parse_links(page.content, page.url))
+        except Exception as error:
+            result.source_failures += 1
+            print(f"[error] 源站读取失败 [{source['key']}]：{error_kind(error)}")
+            continue
+        for item in items:
+            result.scanned += 1
+            try:
+                added = database.request("POST", "rpc/ingest_feed_notice", payload={
+                    "p_source": source["key"], "p_source_name": source["name"],
+                    "p_title": item["title"], "p_link": item["link"], "p_pub_date": item["date"],
+                })
+                if added is True:
+                    result.added += 1
+                elif added is False:
+                    result.duplicates += 1
+                else:
+                    raise ValueError("无法确认写入结果")
+            except Exception as error:
+                result.write_failures += 1
+                print(f"[error] 消息写入失败 [{source['key']}]：{error_kind(error)}")
+    return result
+
+
+def main() -> int:
+    url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+    if not url or not key:
+        print("[error] 缺少 SUPABASE_URL / SUPABASE_SECRET_KEY 环境变量")
+        return 1
+    return collect(SupabaseRest(url, key)).summarize()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

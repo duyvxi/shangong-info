@@ -76,7 +76,7 @@ const maliciousPlain = markdown.toPlainText('正文<img src=x onerror="bad()"><s
 assert.equal(maliciousPlain, '正文结尾');
 
 assert.match(indexSource, /css\/mobile-app\.css\?v=20261115-5/);
-assert.match(indexSource, /js\/api\.js\?v=20261116-1/);
+assert.match(indexSource, /js\/api\.js\?v=20261118-3/);
 assert.ok(indexSource.indexOf('js/markdown.js?v=20260919-1') < indexSource.indexOf('js/ai-stream.js?v=20260920-1'));
 assert.ok(indexSource.indexOf('js/ai-stream.js?v=20260920-1') < indexSource.indexOf('js/ai-conversation.js?v=20260920-1'));
 assert.ok(indexSource.indexOf('js/ai-conversation.js?v=20260920-1') < indexSource.indexOf('js/ai.js?v=20261115-5'));

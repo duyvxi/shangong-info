@@ -10,6 +10,8 @@ on:
     paths:
       - 'knowledge/**'
       - 'scripts/import_manual_knowledge.mjs'
+      - 'scripts/fetch_feeds.py'
+      - 'scripts/requirements-crawler.txt'
       - '.github/workflows/fetch-content.yml'
   schedule:
     - cron: '0 */6 * * *'
@@ -30,6 +32,8 @@ concurrency:
 
 jobs:
   fetch:
+    # 页面发布可以单独跳过本次采集，定时及手动入口照常运行。
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip content-fetch]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -39,8 +43,10 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 安装依赖
-        run: pip install requests beautifulsoup4 supabase
+      - name: 安装固定版本的采集依赖
+        run: |
+          python -m pip install -r scripts/requirements-crawler.txt
+          python -m pip check
 
       - name: 检查官网正文提取规则
         run: python scripts/test_crawl_knowledge.py
@@ -56,6 +62,7 @@ jobs:
         run: node scripts/import_manual_knowledge.mjs
 
       - name: 抓取最新消息列表
+        id: fetch_feeds
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -83,3 +90,9 @@ jobs:
             exit 0
           fi
           node scripts/reindex_knowledge.mjs
+
+      - name: 报告消息列表采集失败
+        if: ${{ always() && steps.fetch_feeds.outcome == 'failure' }}
+        run: |
+          echo '消息列表采集失败，请查看该步骤的错误分类和计数。'
+          exit 1

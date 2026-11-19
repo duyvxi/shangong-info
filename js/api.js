@@ -271,83 +271,14 @@ const Api = {
   // 评论互动 (Comments & Comment Likes)
   // ==========================================
 
-  /**
-   * 获取指定事项的评论列表（含点赞数、点赞状态、子回复）——匿名模式
-   */
-  async getComments(slug, currentUserId = null) {
-    if (!this.isConfigured() || !supabaseClient) return [];
-    try {
-      // 1. 获取该事项下全部过审评论
-      const { data: comments, error } = await supabaseClient
-        .from('comments')
-        .select('id, user_id, user_name, content, parent_id, reply_to_name, created_at')
-        .eq('item_slug', slug)
-        .eq('status', 'approved')
-        .order('created_at', { ascending: true });
-
-      if (error || !comments) {
-        console.warn('获取评论失败:', error ? error.message : '无数据');
-        return [];
-      }
-
-      if (comments.length === 0) return [];
-
-      const commentIds = comments.map((c) => c.id);
-      const anonId = this.getAnonymousId();
-
-      // 2. 批量拉取所有评论的点赞记录
-      const { data: likesData } = await supabaseClient
-        .from('comment_likes')
-        .select('comment_id, user_id')
-        .in('comment_id', commentIds);
-
-      // 3. 统计每条评论的点赞数以及当前浏览器是否已赞
-      const likesCountMap = {};
-      const userLikedSet = new Set();
-
-      if (likesData && likesData.length > 0) {
-        likesData.forEach((item) => {
-          likesCountMap[item.comment_id] = (likesCountMap[item.comment_id] || 0) + 1;
-          if (item.user_id === anonId) {
-            userLikedSet.add(item.comment_id);
-          }
-        });
-      }
-
-      // 4. 将点赞信息附加到各评论对象
-      const enriched = comments.map((c) => ({
-        ...c,
-        like_count: likesCountMap[c.id] || 0,
-        has_liked: userLikedSet.has(c.id),
-      }));
-
-      // 5. 组织成顶级评论 + 楼中楼子回复树形结构
-      const rootComments = [];
-      const replyMap = {};
-
-      enriched.forEach((c) => {
-        if (!c.parent_id) {
-          c.replies = [];
-          rootComments.push(c);
-        } else {
-          if (!replyMap[c.parent_id]) {
-            replyMap[c.parent_id] = [];
-          }
-          replyMap[c.parent_id].push(c);
-        }
-      });
-
-      // 挂载子回复
-      rootComments.forEach((root) => {
-        root.replies = replyMap[root.id] || [];
-      });
-
-      // 顶级评论按时间倒序排（最新的在前），子回复保持正序（方便按对话流阅读）
-      return rootComments.reverse();
-    } catch (err) {
-      console.warn('解析评论数据异常:', err);
-      return [];
-    }
+  /** 分页读取公开评论，由数据库汇总点赞。 */
+  async getComments(slug, { offset = 0, parentId = null } = {}) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('未配置 Supabase');
+    const { data, error } = await supabaseClient.rpc('get_item_comments', {
+      p_item_slug: slug, p_user_id: this.getAnonymousId(), p_offset: offset, p_parent_id: parentId,
+    });
+    if (error) throw error;
+    return data;
   },
 
   /**
@@ -383,34 +314,14 @@ const Api = {
     return { pending: true };
   },
 
-  /**
-   * 切换评论点赞状态（点赞 / 取消点赞）——匿名模式按浏览器身份去重
-   */
+  /** 匿名点赞可重复提交，接口只返回汇总结果。 */
   async toggleCommentLike(commentId) {
-    if (!this.isConfigured() || !supabaseClient) {
-      throw new Error('请先配置 Supabase 后端凭证');
-    }
-    const userId = this.getAnonymousId();
-
-    // 检查是否已点赞
-    const { data: existing } = await supabaseClient
-      .from('comment_likes')
-      .select('id')
-      .eq('comment_id', commentId)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (existing) {
-      return { action: 'liked', unchanged: true };
-    } else {
-      // 新增点赞
-      const { error } = await supabaseClient.from('comment_likes').insert({
-        comment_id: commentId,
-        user_id: userId,
-      });
-      if (error) throw error;
-      return { action: 'liked' };
-    }
+    if (!this.isConfigured() || !supabaseClient) throw new Error('未配置 Supabase');
+    const { data, error } = await supabaseClient.rpc('record_comment_like', {
+      p_comment_id: commentId, p_user_id: this.getAnonymousId(),
+    });
+    if (error) throw error;
+    return data;
   },
 
   // ==========================================
@@ -541,10 +452,7 @@ const Api = {
   async getTopViewedItems(limit = 10) {
     if (!this.isConfigured() || !supabaseClient) return [];
     const { data, error } = await supabaseClient.from('view_top_items').select('*').limit(limit);
-    if (error) {
-      console.warn('获取热榜失败:', error.message);
-      return [];
-    }
+    if (error) throw error;
     return data || [];
   },
 
@@ -554,50 +462,37 @@ const Api = {
   async getSearchRankings(limit = 15) {
     if (!this.isConfigured() || !supabaseClient) return [];
     const { data, error } = await supabaseClient.from('view_search_ranking').select('*').limit(limit);
-    if (error) {
-      console.warn('获取热搜词失败:', error.message);
-      return [];
-    }
+    if (error) throw error;
     return data || [];
   },
 
-  /**
-   * 获取全站核心数据看板指标（汇总计数）
-   */
-  async getDashboardSummary() {
-    if (!this.isConfigured() || !supabaseClient) {
-      return { totalUsers: 0, totalPv: 0, totalLikes: 0, totalComments: 0, totalFeedbacks: 0, pendingPosts: 0 };
-    }
-
-    const [usersRes, viewsRes, likesRes, commentsRes, fbRes, postsRes] = await Promise.all([
-      supabaseClient.from('profiles').select('id', { count: 'exact', head: true }),
-      supabaseClient.from('item_views').select('id', { count: 'exact', head: true }),
-      supabaseClient.from('item_likes').select('id', { count: 'exact', head: true }),
-      supabaseClient.from('comments').select('id', { count: 'exact', head: true }),
-      supabaseClient.from('feedbacks').select('id', { count: 'exact', head: true }),
-      supabaseClient.from('submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    ]);
-
-    return {
-      totalUsers: usersRes.count || 0,
-      totalPv: viewsRes.count || 0,
-      totalLikes: likesRes.count || 0,
-      totalComments: commentsRes.count || 0,
-      totalFeedbacks: fbRes.count || 0,
-      pendingPosts: postsRes.count || 0,
+  /** 独立读取单个看板计数，失败由对应卡片显示。 */
+  async getAdminCount(metric) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('未配置 Supabase');
+    const tables = {
+      users: 'profiles', pv: 'item_views', likes: 'item_likes', comments: 'comments',
+      feedbacks: 'feedbacks', 'knowledge-documents': 'knowledge_documents',
+      'knowledge-chunks': 'knowledge_chunks', 'open-questions': 'unanswered_questions',
     };
+    let query = supabaseClient.from(tables[metric]).select('id', { count: 'exact', head: true });
+    if (metric === 'knowledge-documents') query = query.eq('status', 'published');
+    if (metric === 'knowledge-chunks') query = query.eq('embedding_status', 'ready').not('document_revision', 'is', null);
+    if (metric === 'open-questions') query = query.eq('status', 'open');
+    const { count, error } = await query;
+    if (error) throw error;
+    if (!Number.isInteger(count)) throw new Error('数据库未返回计数');
+    return count;
   },
 
-  /**
-   * 获取全部评论列表（供管理后台审查）
-   */
-  async getAdminComments(limit = 50) {
+  /** 按固定顺序读取一页待后台查看的评论。 */
+  async getAdminComments(limit = 50, offset = 0) {
     if (!this.isConfigured() || !supabaseClient) return [];
     const { data, error } = await supabaseClient
       .from('comments')
       .select('id, item_slug, user_name, content, status, parent_id, reply_to_name, created_at')
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .order('id', { ascending: false })
+      .range(offset, offset + limit - 1);
     if (error) throw error;
     return data || [];
   },
@@ -897,26 +792,6 @@ const Api = {
     if (!data) throw new Error('未收到结单确认，请刷新列表核对');
   },
 
-  async getKnowledgeOverview() {
-    if (!this.isConfigured() || !supabaseClient) {
-      return { sources: 0, documents: 0, readyChunks: 0, openQuestions: 0 };
-    }
-    const [sources, documents, chunks, questions] = await Promise.all([
-      supabaseClient.from('knowledge_sources').select('id', { count: 'exact', head: true }).eq('enabled', true),
-      supabaseClient.from('knowledge_documents').select('id', { count: 'exact', head: true }).eq('status', 'published'),
-      supabaseClient.from('knowledge_chunks').select('id', { count: 'exact', head: true }).eq('embedding_status', 'ready').not('document_revision', 'is', null),
-      supabaseClient.from('unanswered_questions').select('id', { count: 'exact', head: true }).eq('status', 'open'),
-    ]);
-    const firstError = [sources.error, documents.error, chunks.error, questions.error].find(Boolean);
-    if (firstError) throw firstError;
-    return {
-      sources: sources.count || 0,
-      documents: documents.count || 0,
-      readyChunks: chunks.count || 0,
-      openQuestions: questions.count || 0,
-    };
-  },
-
   async getCrawlJobs(limit = 30) {
     if (!this.isConfigured() || !supabaseClient) return [];
     const { data, error } = await supabaseClient
@@ -1096,20 +971,12 @@ const Api = {
    * @param {string} key 配置键（如 crawl_paused）
    * @param {string} fallback 缺省值
    */
-  async getSiteSetting(key, fallback = 'false') {
-    if (!this.isConfigured() || !supabaseClient) return fallback;
-    try {
-      const { data, error } = await supabaseClient
-        .from('site_settings')
-        .select('value')
-        .eq('key', key)
-        .maybeSingle();
-      if (error || !data) return fallback;
-      return data.value;
-    } catch (err) {
-      console.warn('读取站点配置失败:', err);
-      return fallback;
-    }
+  async getSiteSetting(key) {
+    if (!this.isConfigured() || !supabaseClient) throw new Error('未配置 Supabase');
+    const { data, error } = await supabaseClient.from('site_settings').select('value').eq('key', key).maybeSingle();
+    if (error) throw error;
+    if (!['true', 'false'].includes(data?.value)) throw new Error('缺少有效的抓取暂停配置');
+    return data.value;
   },
 
   /**
